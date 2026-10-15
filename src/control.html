@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' data: file:; style-src 'self'">
   <title>Desktop Recorder</title>
   <link rel="stylesheet" href="control.css">
 </head>
@@ -16,7 +16,8 @@
     <section>
       <h2>Qué grabar</h2>
       <div class="segmented" id="mode">
-        <button data-mode="screen" class="on">Pantalla + cámara</button>
+        <button data-mode="screen" class="on">Pantalla</button>
+        <button data-mode="window">Ventana</button>
         <button data-mode="camera">Solo cámara</button>
       </div>
     </section>
@@ -29,6 +30,15 @@
       <div class="screens" id="screens"></div>
     </section>
 
+    <section id="windowSection" hidden>
+      <div class="row-title">
+        <h2>Ventana</h2>
+        <button class="link" id="refreshWindows">Actualizar</button>
+      </div>
+      <div class="screens" id="windows"></div>
+      <p class="hint">Para grabar una pestaña, elige la ventana del navegador. La cámara sale en el video donde tengas la burbuja.</p>
+    </section>
+
     <section>
       <div class="row-title">
         <h2>Cámara</h2>
@@ -36,7 +46,7 @@
       </div>
       <select id="camera"></select>
       <p class="hint">¿No ves la cámara virtual de OBS? Ábrela en OBS con "Iniciar cámara virtual" y pulsa Actualizar.</p>
-      <video id="preview" autoplay muted playsinline hidden></video>
+      <canvas id="preview" hidden></canvas>
     </section>
 
     <section id="bubbleSection">
@@ -51,9 +61,42 @@
     </section>
 
     <section>
+      <h2>Efectos de cámara</h2>
+      <div class="segmented" id="background">
+        <button data-bg="none" class="on">Normal</button>
+        <button data-bg="blur">Desenfoque</button>
+        <button data-bg="color">Color</button>
+        <button data-bg="image">Imagen</button>
+      </div>
+      <label class="row" id="bgColorRow" hidden>Color de fondo <input type="color" id="bgColor" value="#2f5bff"></label>
+      <div class="row" id="bgImageRow" hidden>
+        <button id="pickImage">Elegir imagen…</button>
+        <span class="hint" id="bgImageName"></span>
+      </div>
+      <p class="hint" id="effectStatus"></p>
+      <label class="check"><input type="checkbox" id="border"> Borde alrededor de la cámara</label>
+      <div class="row" id="borderRow" hidden>
+        <input type="color" id="borderColor" value="#ffffff">
+        <div class="swatches" id="swatches">
+          <button data-color="#ffffff" title="Blanco"></button>
+          <button data-color="#121110" title="Negro"></button>
+          <button data-color="#2f5bff" title="Azul"></button>
+          <button data-color="#e5383b" title="Rojo"></button>
+          <button data-color="#ffd60a" title="Amarillo"></button>
+          <button data-color="#2ec27e" title="Verde"></button>
+        </div>
+      </div>
+    </section>
+
+    <section>
       <h2>Audio</h2>
       <select id="mic"></select>
       <label class="check" id="systemAudioRow"><input type="checkbox" id="systemAudio"> Grabar también el sonido del PC</label>
+    </section>
+
+    <section id="clicksSection">
+      <h2>Ratón</h2>
+      <label class="check"><input type="checkbox" id="clicks"> Resaltar los clics en el video</label>
     </section>
 
     <section class="controls">
@@ -65,11 +108,20 @@
       </div>
       <p class="status" id="status">Listo.</p>
       <p class="hint">Atajos: Ctrl+Shift+R grabar o parar · Ctrl+Shift+P pausa</p>
-      <button class="link" id="openFolder">Abrir carpeta de grabaciones</button>
+    </section>
+
+    <section>
+      <h2>Carpeta de grabaciones</h2>
+      <p class="path" id="outputDir"></p>
+      <div class="row">
+        <button id="chooseFolder">Cambiar…</button>
+        <button id="openFolder">Abrir</button>
+        <button class="link" id="resetFolder">Volver a Vídeos</button>
+      </div>
     </section>
   </main>
 
   <div class="countdown" id="countdown" hidden></div>
-  <script src="control.js"></script>
+  <script type="module" src="control.js"></script>
 </body>
 </html>

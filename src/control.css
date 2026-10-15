@@ -68,6 +68,14 @@ select { font: inherit; padding: 7px; border-radius: 8px; border: 1px solid var(
 
 #preview { width: 100%; border-radius: 8px; background: #000; transform: scaleX(-1); }
 
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+input[type="color"] { width: 36px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; }
+.swatches { display: flex; gap: 6px; }
+.swatches button { width: 22px; height: 22px; padding: 0; border-radius: 50%; border: 1px solid var(--line); }
+.swatches button.on { box-shadow: 0 0 0 2px var(--accent); }
+.screen span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.path { margin: 0; font-size: 12px; word-break: break-all; color: var(--muted); }
+
 .controls { text-align: center; }
 .timer { font-size: 32px; font-variant-numeric: tabular-nums; font-weight: 600; }
 .timer.live { color: var(--rec); }

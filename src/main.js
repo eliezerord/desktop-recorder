@@ -1,21 +1,70 @@
 // Desktop Recorder, main process: control panel, screen choice, shortcuts and saving.
 // The camera bubble and its toolbar live in bubble-windows.js.
-const { app, BrowserWindow, ipcMain, desktopCapturer, screen, session, shell, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, screen, session, shell, globalShortcut, dialog, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { convertToMp4 } = require('./convert');
 const bubble = require('./bubble-windows');
+const clickOverlay = require('./click-overlay');
+const cliServer = require('./cli-server');
+const windowTracker = require('./window-tracker');
 
-// DR_OUTPUT_DIR lets the smoke test save somewhere disposable instead of the Videos folder.
-const OUTPUT_DIR = () => process.env.DR_OUTPUT_DIR || path.join(app.getPath('videos'), 'Desktop Recorder');
+// Where recordings are saved: the user's choice (panel or drec --output-dir), else their own
+// Videos\Desktop Recorder. DR_OUTPUT_DIR lets the smoke test save somewhere disposable.
+const DEFAULT_OUTPUT_DIR = () => path.join(app.getPath('videos'), 'Desktop Recorder');
+const OUTPUT_DIR = () => settings.outputDir || process.env.DR_OUTPUT_DIR || DEFAULT_OUTPUT_DIR();
+
+// Settings the main process owns, kept in the app's own folder (userData), one per Windows user.
+const SETTINGS_FILE = () => path.join(app.getPath('userData'), 'settings.json');
+let settings = {};
+function loadSettings() {
+  try { settings = JSON.parse(fs.readFileSync(SETTINGS_FILE(), 'utf8')) || {}; } catch { settings = {}; }
+}
+function saveSettings() {
+  fs.mkdirSync(path.dirname(SETTINGS_FILE()), { recursive: true });
+  fs.writeFileSync(SETTINGS_FILE(), JSON.stringify(settings, null, 2));
+}
+
+// Checks the folder can be written before keeping it, so a recording never fails at the end.
+// null goes back to the default folder.
+function setOutputDir(dir) {
+  if (dir) {
+    const full = path.resolve(dir);
+    fs.mkdirSync(full, { recursive: true });
+    fs.accessSync(full, fs.constants.W_OK);
+    settings.outputDir = full;
+  } else {
+    delete settings.outputDir;
+  }
+  saveSettings();
+  toPanel('output-dir', OUTPUT_DIR());
+  return OUTPUT_DIR();
+}
 const PRELOAD = path.join(__dirname, 'preload.js');
 const ICON = path.join(__dirname, '..', 'build', 'icon.png'); // drawn by build/make-icon.js
 const APP_ID = 'com.eliezerord.desktoprecorder'; // same as build.appId in package.json
 
 // The smoke test keeps its own settings folder, so it never changes the user's saved choices
 // and can run while the app is open.
-if (process.env.DR_SMOKE) app.setPath('userData', path.join(os.tmpdir(), 'desktop-recorder-smoke'));
+if (process.env.DR_SMOKE) {
+  app.setPath('userData', path.join(os.tmpdir(), 'desktop-recorder-smoke'));
+  // Its own CLI pipe and token too, so the test's drec calls reach the test app, not the user's.
+  process.env.DREC_PIPE = `\\\\.\\pipe\\desktop-recorder-smoke-${process.pid}`;
+  process.env.DREC_TOKEN_FILE = path.join(os.tmpdir(), 'desktop-recorder-smoke', 'cli-token');
+}
+
+// One copy of the app at a time: opening it again (or drec starting it) shows the open panel.
+if (!process.env.DR_SMOKE && !app.requestSingleInstanceLock()) {
+  app.exit(0);
+}
+app.on('second-instance', () => {
+  if (controlWin && !controlWin.isDestroyed()) {
+    if (controlWin.isMinimized()) controlWin.restore();
+    controlWin.show();
+    controlWin.focus();
+  }
+});
 
 let controlWin = null;
 const capture = { sourceId: null, displayId: null, systemAudio: false };
@@ -66,28 +115,71 @@ function timestamp() {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
 }
 
-function registerIpc() {
-  ipcMain.handle('list-screens', async () => {
-    const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 320, height: 180 } });
-    const primaryId = String(screen.getPrimaryDisplay().id);
-    return sources.map((s, i) => {
-      const d = displayById(s.display_id);
-      return {
-        id: s.id,
-        displayId: s.display_id,
-        name: `Pantalla ${i + 1}${String(d.id) === primaryId ? ' (principal)' : ''}`,
-        size: `${d.size.width} x ${d.size.height}`,
-        primary: String(d.id) === primaryId,
-        thumb: s.thumbnail.toDataURL(),
-      };
-    });
+// Screens in the order Windows numbers them. withThumbs adds a small picture for the panel.
+async function listScreens(withThumbs = true) {
+  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: withThumbs ? { width: 320, height: 180 } : { width: 0, height: 0 } });
+  const primaryId = String(screen.getPrimaryDisplay().id);
+  return sources.map((s, i) => {
+    const d = displayById(s.display_id);
+    return {
+      number: i + 1,
+      id: s.id,
+      displayId: s.display_id,
+      name: `Pantalla ${i + 1}${String(d.id) === primaryId ? ' (principal)' : ''}`,
+      size: `${d.size.width} x ${d.size.height}`,
+      primary: String(d.id) === primaryId,
+      thumb: withThumbs ? s.thumbnail.toDataURL() : undefined,
+    };
   });
+}
 
-  ipcMain.handle('select-screen', (_e, sourceId, displayId) => {
-    capture.sourceId = sourceId;
-    capture.displayId = displayId;
-    bubble.placeOn(displayId);
+// Open windows that can be recorded, leaving out this app's own windows.
+async function listWindows(withThumbs = true) {
+  const own = new Set(BrowserWindow.getAllWindows().map((w) => w.getMediaSourceId()));
+  const sources = await desktopCapturer.getSources({ types: ['window'], thumbnailSize: withThumbs ? { width: 320, height: 180 } : { width: 0, height: 0 } });
+  return sources
+    .filter((s) => s.name && !own.has(s.id))
+    .map((s) => ({ id: s.id, name: s.name, thumb: withThumbs ? s.thumbnail.toDataURL() : undefined }));
+}
+
+function selectScreen(sourceId, displayId) {
+  capture.sourceId = sourceId;
+  capture.displayId = displayId;
+  bubble.placeOn(displayId);
+}
+
+function selectWindow(sourceId) {
+  capture.sourceId = sourceId;
+}
+
+// A background picture for the camera, shrunk and kept as data so the panel can store it and
+// the camera canvas can still be recorded (a canvas with an outside file in it cannot).
+async function pickBackgroundImage() {
+  const res = await dialog.showOpenDialog(controlWin, {
+    title: 'Imagen de fondo',
+    properties: ['openFile'],
+    filters: [{ name: 'Imágenes', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }],
   });
+  if (res.canceled || !res.filePaths[0]) return null;
+  return imageAsData(res.filePaths[0]);
+}
+
+const BACKGROUND_MAX_WIDTH = 1920; // a camera frame is at most this wide, so more pixels add nothing
+function imageAsData(file) {
+  let img = nativeImage.createFromPath(file);
+  if (img.isEmpty()) throw new Error(`No se pudo leer la imagen ${file}.`);
+  if (img.getSize().width > BACKGROUND_MAX_WIDTH) img = img.resize({ width: BACKGROUND_MAX_WIDTH, quality: 'best' });
+  return { name: path.basename(file), dataUrl: `data:image/jpeg;base64,${img.toJPEG(85).toString('base64')}` };
+}
+
+function registerIpc() {
+  ipcMain.handle('list-screens', () => listScreens());
+  ipcMain.handle('list-windows', () => listWindows());
+  ipcMain.handle('select-screen', (_e, sourceId, displayId) => selectScreen(sourceId, displayId));
+  ipcMain.handle('select-window', (_e, sourceId) => selectWindow(sourceId));
+  ipcMain.on('set-effects', (_e, fx) => bubble.setEffects(fx));
+  ipcMain.handle('pick-bg-image', () => pickBackgroundImage());
+  ipcMain.handle('bubble-placement', () => bubble.placement(String(capture.sourceId).startsWith('window:') ? windowTracker.current() : null));
 
   ipcMain.on('set-camera', (_e, deviceId) => bubble.setCamera(deviceId));
   ipcMain.on('set-bubble-size', (_e, size) => bubble.setSize(size));
@@ -135,16 +227,30 @@ function registerIpc() {
     fs.mkdirSync(OUTPUT_DIR(), { recursive: true });
     shell.openPath(OUTPUT_DIR());
   });
+  ipcMain.handle('get-output-dir', () => OUTPUT_DIR());
+  ipcMain.handle('choose-output-dir', async () => {
+    const res = await dialog.showOpenDialog(controlWin, {
+      title: 'Carpeta de grabaciones',
+      defaultPath: OUTPUT_DIR(),
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (res.canceled || !res.filePaths[0]) return OUTPUT_DIR();
+    return setOutputDir(res.filePaths[0]);
+  });
+  ipcMain.handle('reset-output-dir', () => setOutputDir(null));
 }
 
 app.whenReady().then(() => {
   // Windows groups the taskbar button and picks its icon by this id.
   app.setAppUserModelId(APP_ID);
+  loadSettings();
 
   // The control panel asks for the screen with getDisplayMedia; this answers with the chosen
   // screen and, when asked, the PC sound ('loopback' is Windows system audio).
   session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
-    const sources = await desktopCapturer.getSources({ types: ['screen'] });
+    // Only the kind needed and no thumbnails: listing every window with pictures takes seconds.
+    const kind = String(capture.sourceId || '').startsWith('window:') ? 'window' : 'screen';
+    const sources = await desktopCapturer.getSources({ types: [kind], thumbnailSize: { width: 0, height: 0 } });
     const source = sources.find((s) => s.id === capture.sourceId) || sources[0];
     callback(capture.systemAudio ? { video: source, audio: 'loopback' } : { video: source });
   });
@@ -159,126 +265,158 @@ app.whenReady().then(() => {
     // The recording pill's buttons do what the keyboard shortcuts do.
     recAction: (action) => toPanel('shortcut', action),
   });
-  ipcMain.on('rec-state', (_e, s) => bubble.setRecState(s));
+  // In window recordings the panel draws the click circles into the video itself.
+  clickOverlay.create({ preload: PRELOAD, forwardConsole, windowClick: (spot) => toPanel('window-click', spot) });
+  ipcMain.on('rec-state', (_e, s) => {
+    bubble.setRecState(s);
+    const recording = ['countdown', 'recording', 'paused'].includes(s.phase);
+    // Window recordings follow the window's position from the countdown on: the camera and the
+    // click circles are placed relative to it, and the helper needs a moment to start.
+    if (recording && s.mode === 'window') windowTracker.start(capture.sourceId);
+    else windowTracker.stop();
+    clickOverlay.update({ active: Boolean(s.clicks) && recording, recordMode: s.mode, displayId: capture.displayId });
+  });
+  app.on('before-quit', () => { clickOverlay.stop(); windowTracker.stop(); });
 
   globalShortcut.register('CommandOrControl+Shift+R', () => toPanel('shortcut', 'toggle'));
   globalShortcut.register('CommandOrControl+Shift+P', () => toPanel('shortcut', 'pause'));
+
+  cliServer.start(cliHandlers(), log);
 });
+
+// ---------- drec CLI ----------
+
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Runs one of the panel's window.drec commands, once the panel has finished loading.
+async function panelCall(name, args = {}) {
+  for (let i = 0; i < 80; i++) {
+    if (controlWin && !controlWin.isDestroyed() && await controlWin.webContents.executeJavaScript('Boolean(window.drecReady)').catch(() => false)) break;
+    await wait(250);
+  }
+  const res = await controlWin.webContents.executeJavaScript(`window.drec.call(${JSON.stringify(name)}, ${JSON.stringify(args)})`);
+  if (!res.ok) throw new Error(res.error);
+  return res.data;
+}
+
+// Turns what a person or an agent types ("screen 2", "the window with Chrome in its title", a
+// picture's path) into the exact sources the panel works with.
+async function resolveSettings(args) {
+  const s = { ...args };
+  if (args.screen !== undefined) {
+    const list = await listScreens(false);
+    const pick = String(args.screen).toLowerCase() === 'primary' ? list.find((x) => x.primary) : list.find((x) => String(x.number) === String(args.screen));
+    if (!pick) throw new Error(`No screen "${args.screen}". Screens: ${list.map((x) => `${x.number} ${x.name}`).join(', ')}`);
+    s.screen = { id: pick.id, displayId: pick.displayId };
+    if (s.mode === undefined) s.mode = 'screen';
+  }
+  if (args.window !== undefined) {
+    const list = await listWindows(false);
+    const n = Number(args.window);
+    const text = String(args.window).toLowerCase();
+    const pick = Number.isInteger(n) && n > 0 ? list[n - 1] : list.find((w) => w.name.toLowerCase().includes(text));
+    if (!pick) throw new Error(`No window "${args.window}". Windows: ${list.map((w, i) => `${i + 1} ${w.name}`).join(' | ')}`);
+    s.window = { id: pick.id, name: pick.name };
+    if (s.mode === undefined) s.mode = 'window';
+  }
+  if (args.bgImage) {
+    const img = imageAsData(args.bgImage);
+    s.bgImage = img.dataUrl;
+    s.bgImageName = img.name;
+    if (s.background === undefined) s.background = 'image';
+  }
+  return s;
+}
+
+async function withScreenNumber(status) {
+  const list = await listScreens(false);
+  const screenInfo = list.find((x) => x.id === status.screen);
+  return { ...status, screenNumber: screenInfo ? screenInfo.number : null };
+}
+
+// Settings the panel does not own: where the bubble sits and where recordings are saved.
+async function applyAll(a) {
+  const { bubbleCorner, outputDir, ...panelSettings } = a;
+  if (bubbleCorner !== undefined && !bubble.CORNERS.includes(bubbleCorner)) throw new Error(`bubble-corner: use ${bubble.CORNERS.join(', ')}.`);
+  if (Object.keys(panelSettings).length) await panelCall('apply', await resolveSettings(panelSettings));
+  if (bubbleCorner !== undefined) {
+    // Window recordings: the corner of the window itself, so the camera lands in that corner of
+    // the video. Screen recordings: the corner of the recorded screen.
+    const mode = (await panelCall('status')).mode;
+    const rect = mode === 'window' ? await windowTracker.readOnce(capture.sourceId) : null;
+    const dipRect = rect ? screen.screenToDipRect(null, { x: rect.left, y: rect.top, width: rect.right - rect.left, height: rect.bottom - rect.top }) : null;
+    bubble.placeCorner(bubbleCorner, capture.displayId, dipRect);
+  }
+  if (outputDir !== undefined) {
+    try { setOutputDir(outputDir === 'default' ? null : outputDir); } catch (err) { throw new Error(`output-dir: cannot write to "${outputDir}" (${err.code || err.message}).`); }
+  }
+}
+
+async function fullStatus(status) {
+  return { ...(await withScreenNumber(status)), outputDir: OUTPUT_DIR(), version: app.getVersion() };
+}
+
+// Version plus when this copy of the app was built, so two builds with the same version number
+// can be told apart (a user once ran an older 1.1.0 build and its missing options looked like a bug).
+// Installed, the build time is the app archive's date; in the source folder it is "dev".
+function versionText() {
+  if (!app.isPackaged) return `${app.getVersion()} (dev)`;
+  const built = fs.statSync(app.getAppPath()).mtime;
+  const p = (n) => String(n).padStart(2, '0');
+  return `${app.getVersion()} (built ${built.getFullYear()}-${p(built.getMonth() + 1)}-${p(built.getDate())} ${p(built.getHours())}:${p(built.getMinutes())})`;
+}
+
+// drec doctor: what works and what does not, each failure with a hint on how to fix it.
+async function doctor() {
+  const checks = [];
+  const add = (name, ok, detail, hint) => checks.push(ok ? { name, ok, detail } : { name, ok, detail, hint });
+  add('app', true, `Desktop Recorder ${versionText()} is running`);
+  const screens = await listScreens(false);
+  add('screens', screens.length > 0, `${screens.length} screen(s)`, 'Windows reports no screens to record.');
+  const dev = await panelCall('devices');
+  add('camera', dev.cameras.length > 0, dev.cameras.map((c) => c.label).join(', ') || 'none found', 'Connect a camera, or record with --camera none.');
+  add('microphone', dev.mics.length > 0, dev.mics.map((m) => m.label).join(', ') || 'none found', 'Connect a microphone, or record with --mic none.');
+  const { ffmpegPath } = require('./convert');
+  add('mp4 converter', fs.existsSync(ffmpegPath), ffmpegPath, 'ffmpeg is missing: reinstall Desktop Recorder.');
+  let folderOk = true;
+  try { fs.mkdirSync(OUTPUT_DIR(), { recursive: true }); fs.accessSync(OUTPUT_DIR(), fs.constants.W_OK); } catch { folderOk = false; }
+  add('output folder', folderOk, OUTPUT_DIR(), 'Pick a folder you can write to with --output-dir.');
+  let hookOk = true;
+  try { require('uiohook-napi'); } catch { hookOk = false; }
+  add('click highlight', hookOk, hookOk ? 'mouse hook available' : 'mouse hook did not load', 'Reinstall Desktop Recorder to restore click highlights.');
+  return { ok: checks.every((c) => c.ok), version: versionText(), checks };
+}
+
+function cliHandlers() {
+  return {
+    ping: async () => 'pong',
+    version: async () => versionText(),
+    doctor,
+    status: async () => fullStatus(await panelCall('status')),
+    screens: async () => (await listScreens(false)).map(({ number, name, size, primary }) => ({ number, name, size, primary })),
+    windows: async () => (await listWindows(false)).map((w, i) => ({ number: i + 1, name: w.name })),
+    devices: () => panelCall('devices'),
+    set: async (a) => {
+      await applyAll(a);
+      return fullStatus(await panelCall('status'));
+    },
+    start: async (a) => {
+      if (Object.keys(a).length) await applyAll(a);
+      return fullStatus(await panelCall('start'));
+    },
+    pause: () => panelCall('pause'),
+    resume: () => panelCall('resume'),
+    stop: () => panelCall('stop'),
+    quit: async () => { setTimeout(() => app.quit(), 100); return 'Closing Desktop Recorder.'; },
+  };
+}
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   log('saliendo');
 });
 
-// DR_SMOKE=1: checks the bubble sizes, full screen and toolbar placement, then records 5 seconds
-// with mic and PC sound, waits for the MP4, prints a report and quits. How to run it: README.md.
+// DR_SMOKE=1 runs the smoke test in smoke.js and quits. How to run it: README.md.
 if (process.env.DR_SMOKE) {
-  app.whenReady().then(async () => {
-    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-    const step = (name) => log(`SMOKE-STEP ${name}`);
-    const panel = (js) => controlWin.webContents.executeJavaScript(js);
-    const panelSize = () => panel(`document.querySelector('#bubbleSize .on')?.dataset.size`);
-    step('arranque');
-    await wait(6000);
-    step('leyendo el panel');
-    const devices = await panel(`({
-      screens: document.querySelectorAll('.screen').length,
-      cameras: [...document.querySelectorAll('#camera option')].map((o) => o.textContent),
-      mics: document.querySelectorAll('#mic option').length - 1,
-    })`);
-
-    step('tamaños');
-    const startSmall = bubble.snapshot().bounds;
-    bubble.setSize('medium');
-    await wait(400);
-    const medium = { ...bubble.snapshot(), panel: await panelSize() };
-    bubble.setSize('full');
-    await wait(400);
-    bubble.showToolbar();
-    const full = { ...bubble.snapshot(), area: bubble.area(), panel: await panelSize() };
-    bubble.setSize('medium'); // leaving full screen goes back to the size before it
-    bubble.setSize('small');
-    await wait(400);
-    bubble.showToolbar();
-    const small = bubble.snapshot();
-    bubble.hideToolbar();
-
-    // Mouse events into a window, at the centre of the element the selector finds.
-    // holdMs keeps the button pressed like a person does (a click takes about 100 to 300 ms),
-    // long enough for the recording timer to update the pill between press and release.
-    const clickIn = async (wc, selector, holdMs = 0) => {
-      const r = await wc.executeJavaScript(`(() => { const b = document.querySelector('${selector}').getBoundingClientRect();
-        return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) }; })()`);
-      wc.sendInputEvent({ type: 'mouseMove', ...r });
-      wc.sendInputEvent({ type: 'mouseDown', ...r, button: 'left', clickCount: 1 });
-      if (holdMs) await wait(holdMs);
-      wc.sendInputEvent({ type: 'mouseUp', ...r, button: 'left', clickCount: 1 });
-    };
-    const HUMAN_CLICK_MS = 400;
-    const { toolbar: bar, pill } = bubble.contents();
-    const pillMain = () => pill.executeJavaScript(`document.getElementById('main').title`);
-
-    step('clic en la barra');
-    // A click on the bar's "Pequeña" button must shrink the bubble.
-    bubble.setSize('medium');
-    await wait(300);
-    bubble.showToolbar();
-    await wait(300);
-    await clickIn(bar, '[data-action="small"]');
-    await wait(500);
-    const afterClick = bubble.snapshot();
-    const b = afterClick.bounds;
-    const p = afterClick.pillBounds;
-
-    // The bar's X closes the bubble and the pill with it; choosing a size brings both back.
-    await clickIn(bar, '[data-action="close"]');
-    await wait(400);
-    const closed = bubble.snapshot();
-    bubble.setSize('small');
-    await wait(400);
-    const reopened = bubble.snapshot();
-
-    const checks = {
-      'clic en Pequeña de la barra': afterClick.bounds.width === 200,
-      'pastilla visible': afterClick.pillVisible,
-      'pastilla al lado, sin tapar la burbuja': p.x + p.width <= b.x || p.x >= b.x + b.width,
-      'la X cierra burbuja y pastilla': !closed.visible && !closed.pillVisible,
-      'vuelven al elegir tamaño': reopened.visible && reopened.pillVisible,
-      'Pequeña cambia el tamaño': afterClick.bounds.width === 200,
-      'mediana mide 400': medium.bounds.width === 400 && medium.bounds.height === 400,
-      'el panel se sincroniza': medium.panel === 'medium' && full.panel === 'full',
-      'completa cubre la pantalla': JSON.stringify(full.bounds) === JSON.stringify(full.area),
-      'barra dentro en completa': full.toolbarBounds.y + full.toolbarBounds.height <= full.area.y + full.area.height,
-      'vuelve a pequeña (200)': small.bounds.width === 200,
-      'vuelve cerca de donde estaba': Math.abs(small.bounds.x - startSmall.x) <= 100 && Math.abs(small.bounds.y - startSmall.y) <= 100,
-      'barra centrada bajo la burbuja': Math.abs((small.toolbarBounds.x + small.toolbarBounds.width / 2) - (small.bounds.x + small.bounds.width / 2)) <= 1,
-    };
-
-    step('grabación desde la pastilla');
-    // The whole recording is driven from the pill: record, pause, resume, stop.
-    await panel(`document.getElementById('systemAudio').checked = true;
-      document.getElementById('systemAudio').dispatchEvent(new Event('change'));`);
-    checks['pastilla dice Grabar'] = (await pillMain()).startsWith('Grabar');
-    await clickIn(pill, '#main', HUMAN_CLICK_MS);
-    await wait(3500 + 2000); // countdown, then 2 seconds of recording
-    checks['pastilla dice Parar al grabar'] = (await pillMain()).startsWith('Parar');
-    await clickIn(pill, '#pause', HUMAN_CLICK_MS);
-    await wait(1000);
-    checks['pausa con un toque'] = (await panel(`document.getElementById('status').textContent`)) === 'En pausa.';
-    await clickIn(pill, '#pause', HUMAN_CLICK_MS);
-    await wait(2000);
-    checks['reanuda con un toque'] = (await panel(`document.getElementById('status').textContent`)) === 'Grabando.';
-    await clickIn(pill, '#main', HUMAN_CLICK_MS);
-    await wait(500);
-    checks['para con un toque'] = !(await pillMain()).startsWith('Parar');
-    step('esperando el MP4');
-    let status = '';
-    for (let i = 0; i < 60 && !/Guardado|No se pudo/.test(status); i++) {
-      await wait(1000);
-      status = await panel(`document.getElementById('status').textContent`);
-    }
-    const files = fs.existsSync(OUTPUT_DIR()) ? fs.readdirSync(OUTPUT_DIR()) : [];
-    log('SMOKE ' + JSON.stringify({ ...devices, displays: screen.getAllDisplays().length, checks, status, files }));
-    app.quit();
-  });
+  app.whenReady().then(() => require('./smoke').run({ app, bubble, clickOverlay, panelWin: () => controlWin, listWindows, log, outputDir: OUTPUT_DIR }));
 }

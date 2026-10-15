@@ -1,35 +1,11 @@
-// Camera bubble: shows the chosen camera and starts or ends the drag.
+// Camera bubble: shows the chosen camera with its effects and starts or ends the drag.
 // Hover and click-through are handled by the main process, which watches the cursor.
-const video = document.getElementById('cam');
+import { createCameraPipeline } from './camera-pipeline.js';
+
 const bubble = document.getElementById('bubble');
-let stream = null;
-let currentId = null;
-let request = 0;
+const pipeline = createCameraPipeline(document.getElementById('cam'));
 let full = false;
 let dragging = false;
-
-async function useCamera(deviceId) {
-  if (deviceId === currentId) return; // same camera: keep the stream, so resizing does not flicker
-  currentId = deviceId;
-  const mine = ++request;
-  if (stream) stream.getTracks().forEach((t) => t.stop());
-  stream = null;
-  video.srcObject = null;
-  if (!deviceId) return;
-  try {
-    const next = await navigator.mediaDevices.getUserMedia({
-      video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: false,
-    });
-    // A newer camera choice arrived while this one was opening: drop this one.
-    if (mine !== request) { next.getTracks().forEach((t) => t.stop()); return; }
-    stream = next;
-    video.srcObject = stream;
-  } catch (err) {
-    currentId = null; // lets the same camera be tried again
-    console.error(`No se pudo abrir la cámara en la burbuja: ${err.name} ${err.message}`);
-  }
-}
 
 bubble.addEventListener('pointerdown', (e) => {
   if (e.button !== 0 || full) return;
@@ -47,8 +23,18 @@ bubble.addEventListener('pointerup', endDrag);
 bubble.addEventListener('pointercancel', endDrag);
 bubble.addEventListener('lostpointercapture', endDrag);
 
-window.api.onBubbleCamera(useCamera);
+window.api.onBubbleCamera((id) => pipeline.setCamera(id));
 window.api.onBubbleMode((mode) => {
   full = mode.full;
   document.body.classList.toggle('full', full);
 });
+
+// Background effect and the optional colored ring around the bubble.
+window.api.onBubbleEffects((fx) => {
+  pipeline.setEffect({ background: fx.background, color: fx.bgColor, image: fx.bgImage });
+  document.body.classList.toggle('ring', Boolean(fx.border));
+  document.body.style.setProperty('--ring', fx.borderColor || '#ffffff');
+});
+
+// For the smoke test: whether the camera and the effect are running.
+window.bubbleStatus = () => ({ camera: pipeline.hasCamera(), effectReady: pipeline.effectReady(), error: pipeline.lastError() });

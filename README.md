@@ -1,73 +1,111 @@
 # Desktop Recorder
 
-Graba la pantalla con una burbuja de cámara, o solo la cámara, y guarda un MP4 listo para editar. Solo Windows. Hecha con Electron y ffmpeg.
+A free screen recorder for Windows. Record a screen or a single window with a camera bubble on top, or just the camera, and get an MP4 that is ready to edit. AI agents can drive it too, through the `drec` command.
 
-## Descargar
+The app's interface is in Spanish. The `drec` command and this README are in English.
 
-1. Entra en [Releases](https://github.com/eliezerord/desktop-recorder/releases/latest) y descarga `Desktop-Recorder-Setup-x.y.z.exe`.
-2. Ábrelo y sigue el instalador. Crea un acceso en el escritorio y en el menú Inicio.
-3. La primera vez Windows puede mostrar "Windows protegió tu PC", porque el instalador no está firmado. Pulsa **Más información** y luego **Ejecutar de todas formas**.
+## Download
 
-Para desinstalar: Configuración, Aplicaciones, Desktop Recorder.
+1. Go to [Releases](https://github.com/eliezerord/desktop-recorder/releases/latest) and download `Desktop-Recorder-Setup-x.y.z.exe`.
+2. Run it. It adds a desktop shortcut, a Start menu entry and the `drec` command.
+3. The installer is not signed, so the first time Windows may show "Windows protected your PC". Click **More info**, then **Run anyway**.
 
-## Para desarrollar
+To uninstall: Settings, Apps, Desktop Recorder.
 
-Desde esta carpeta, una vez:
+## What it does
+
+- **Record a screen** (any of your monitors) **or a window**, such as one browser window. A single browser tab can only be captured from inside the browser, so pick the browser window.
+- **Camera bubble** you drag anywhere. Hover it for its toolbar: remove, small, medium, full screen (Esc to leave).
+- **Camera effects:** blur the background, or replace it with a color or a picture. A ring around the camera, in any color.
+- **Highlight mouse clicks** with a soft circle, handy for tutorials.
+- **Microphone and PC sound**, mixed into one track.
+- **Record, pause, resume and stop** from the panel, from the pill next to the bubble, or with Ctrl+Shift+R and Ctrl+Shift+P.
+- **The panel, the bubble toolbar and the pill never show up in the video.**
+- **Saves an MP4** (H.264, constant 30 fps, AAC audio) to your own `Videos\Desktop Recorder` folder. Change it in the panel ("Carpeta de grabaciones") or with `drec set --output-dir`.
+
+Everything runs on your PC. The background effect uses Google's MediaPipe selfie segmenter, which ships inside the app, so it works offline.
+
+## drec: control it from a terminal or an AI agent
+
+### Quick start
+
+```bash
+drec doctor                        # checks screens, camera, mic, MP4 converter and save folder
+drec screens                       # numbered list of screens
+drec windows                       # numbered list of open windows
+drec start --screen 2 --clicks on  # 3 s countdown, then records
+drec pause
+drec resume
+drec stop                          # waits for the MP4 and prints its path
+drec record --seconds 30 --window "Chrome" --background blur
+```
+
+Every setting in the app can be changed from `drec`: what to record (`--mode`, `--screen`, `--window`), camera and mic, PC sound, bubble size and corner, background effect, border and its color, click highlights, and the save folder. `drec help` lists every option. If the app is closed, `drec` opens it.
+
+### Agent usage
+
+- Add `--json` to any command for machine-readable output. Errors go to stderr and the exit code is 1.
+- `drec` never asks questions, so it is safe in scripts and agent loops.
+- Pick windows by part of their title (`--window "Claude"`): window numbers can change between calls.
+- `drec start` returns once recording has begun, after the 3 s countdown; `drec stop` returns the MP4 path.
+- `drec` only controls the recording. To record a tutorial, an agent moves the mouse and types with its own computer-use tools while `drec` records. The skill in [`skills/desktop-recorder/`](skills/desktop-recorder/SKILL.md) tells an agent how to turn a request like "get ready to record my second monitor" into commands, and how to act at a human pace.
+
+`drec` talks to the app through a Windows named pipe, which only exists on your PC, and every call needs a token that the app keeps in your user profile. Nothing listens on the network.
+
+### Troubleshooting
+
+- **`drec` is not recognized:** open a new terminal after installing; terminals opened before the install do not see the updated PATH.
+- **`not running and could not be reached`:** run `drec open`.
+- **`Wrong CLI token`:** close and reopen Desktop Recorder.
+- **Anything else:** `drec doctor` names the broken part and how to fix it.
+
+## Build from source
 
 ```bash
 npm install
+npm start          # run the app
+npm run dist       # build the installer into dist/
+npm run icon       # redraw build/icon.png and build/icon.ico
+node cli/drec.js help
 ```
 
-Si Electron no baja su programa en la instalación, lo baja solo al primer `npm start`. También se puede forzar con `node node_modules/electron/install.js`.
+If Electron did not download its program during `npm install`, run `node node_modules/electron/install.js`.
 
-## Usar
-
-```bash
-npm start
-```
-
-- Elige qué grabar (pantalla + cámara, o solo cámara), la pantalla, la cámara y el micrófono.
-- La cámara virtual de OBS aparece si está encendida en OBS ("Iniciar cámara virtual"). Pulsa Actualizar si no sale.
-- Grabar empieza tras una cuenta atrás de 3 segundos. Se puede grabar, pausar y parar desde el panel, desde la pastilla que hay junto a la burbuja, o con los atajos Ctrl+Shift+R (grabar o parar) y Ctrl+Shift+P (pausa).
-- Al pasar el ratón por la burbuja sale su barra: quitar cámara, pequeña, mediana y pantalla completa (Esc para salir). Ni la barra ni la pastilla salen en el video.
-- Los videos van a `Vídeos\Desktop Recorder\`. Si la conversión a MP4 falla, el WebM original se guarda ahí mismo.
-
-## Crear el instalador
-
-```bash
-npm run dist
-```
-
-Deja `dist/Desktop-Recorder-Setup-<versión>.exe` (la versión sale de `package.json`) y la app sin instalar en `dist/win-unpacked/`. La prueba completa de abajo también funciona con `dist/win-unpacked/Desktop Recorder.exe` en lugar de `electron.exe .`, y conviene pasarla antes de publicar, porque ahí es donde ffmpeg tiene que salir del paquete.
-
-El icono se dibuja por código en estilo Dots: `npm run icon` vuelve a generar `build/icon.png` y `build/icon.ico`, con una rejilla de puntos distinta para cada tamaño, así se lee bien hasta en 16 px.
-
-## Probar
+### Tests
 
 ```bash
 node test/convert-test.js
 ```
 
-Comprueba la conversión a MP4 sin abrir la app: H.264, tamaño par, 30 fps, audio AAC y progreso.
+Checks the WebM to MP4 step without opening the app.
 
-Prueba completa con la app (abre las ventanas, graba 5 segundos de la pantalla con micrófono y sonido del PC, y cierra sola). Guarda en la carpeta que indiques, no en Vídeos:
+The full smoke test opens the app, drives it with simulated clicks and with the real `drec` command, records short clips of a screen, a window and the camera, and closes. It saves to the folder you give it and keeps its own settings, so it does not touch yours:
 
 ```bash
-DR_SMOKE=1 DR_OUTPUT_DIR="C:\ruta\temporal" ./node_modules/electron/dist/electron.exe .
+DR_SMOKE=1 DR_OUTPUT_DIR="C:\path\to\temp" DR_LOG="C:\path\to\smoke.log" ./node_modules/electron/dist/electron.exe .
 ```
 
-Comprueba los tamaños de la burbuja, la pantalla completa, la vuelta al tamaño anterior, la posición de la barra y de la pastilla, que el panel se sincroniza y un clic en la barra. Después graba, pausa, reanuda y para con clics en la pastilla. Imprime una línea `SMOKE {...}` con pantallas, cámaras, micrófonos, esas comprobaciones y el archivo guardado. Usa su propia carpeta de ajustes, así que no cambia tus opciones guardadas y puede correr con la app abierta (la cámara saldrá "en uso"). Los clics son simulados dentro de las ventanas: el arrastre y el ratón real solo se prueban a mano.
+It writes one `SMOKE {...}` line with every check. Run it on `dist/win-unpacked/Desktop Recorder.exe` too before publishing, since that is where ffmpeg, the effect model and the click hook have to load from the package. Simulated clicks run inside the app's windows, so dragging and real mouse clicks still need a manual check. `DR_DEBUG=1` copies the windows' console messages to the log.
 
-En Windows, la salida de un proceso que se corta se pierde. Añade `DR_LOG="C:\ruta\smoke.log"` para que los pasos (`SMOKE-STEP`) y los mensajes queden también en un archivo. Añade `DR_DEBUG=1` para ver los mensajes de las ventanas en la terminal.
+## Files
 
-## Archivos
+- `src/main.js` - windows, screen and window choice, PC sound, shortcuts, saving, the `drec` commands.
+- `src/control.html`, `control.js`, `control.css` - the panel and the recording itself.
+- `src/camera-pipeline.js` - the camera with its background effect, shared by the bubble and the panel.
+- `src/bubble-windows.js` - the bubble, its toolbar and the recording pill.
+- `src/bubble.*`, `src/toolbar.*`, `src/recpill.*` - what each of those windows shows.
+- `src/click-overlay.js`, `src/clicks.*` - click highlights.
+- `src/cli-server.js` and `cli/drec.js`, `cli/drec.cmd` - the `drec` command, app side and terminal side.
+- `src/convert.js` - WebM to MP4 with ffmpeg.
+- `src/smoke.js` - the smoke test.
+- `build/` - the icon, the script that draws it, and the installer step that adds `drec` to your PATH.
 
-- `src/main.js` - ventanas, pantalla elegida, sonido del PC, atajos y guardado.
-- `src/control.html`, `control.js`, `control.css` - el panel y la grabación.
-- `src/bubble-windows.js` - la burbuja y su barra: arrastre, clics a través, tamaños y pantalla completa.
-- `src/bubble.html`, `bubble.js` - lo que se ve dentro de la burbuja.
-- `src/toolbar.html`, `toolbar.js` - la barra de controles que sale al pasar el ratón (no sale en el video).
-- `src/recpill.html`, `recpill.js` - la pastilla de grabar, pausar y parar junto a la burbuja (no sale en el video).
-- `src/convert.js` - WebM a MP4 con ffmpeg.
-- `src/preload.js` - las llamadas que las ventanas pueden hacer al proceso principal.
-- `build/make-icon.js` - dibuja el icono; `build/icon.png` y `build/icon.ico` son su resultado.
+## License
+
+MIT, see [LICENSE](LICENSE).
+
+The installer also ships third-party software under its own licenses:
+
+- [FFmpeg](https://ffmpeg.org) (GPL-3.0, via `ffmpeg-static`), run as a separate program; its license is installed with the app.
+- [MediaPipe](https://mediapipe.dev) and its selfie segmenter model (Apache-2.0).
+- [Electron](https://www.electronjs.org) (MIT) and [uiohook-napi](https://github.com/SnosMe/uiohook-napi) (MIT).

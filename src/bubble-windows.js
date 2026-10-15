@@ -24,6 +24,8 @@ let pillWin = null;
 let onSizeChanged = () => {};
 let onRecAction = () => {};
 const state = { size: 'small', beforeFull: 'small', enabled: true, cameraId: null, displayId: null, normalBounds: null };
+// Background effect and ring, set from the panel or the CLI and drawn by the bubble.
+let effects = { background: 'none', bgColor: '#2f5bff', bgImage: null, border: false, borderColor: '#ffffff' };
 const pointer = { last: null, overBubble: false, lastMoveAt: 0, leftAt: 0 };
 let drag = null;
 let lastRecState = { phase: 'idle', time: '00:00' };
@@ -62,6 +64,7 @@ function create({ preload, forwardConsole, sizeChanged, recAction }) {
   bubbleWin.loadFile(path.join(__dirname, 'bubble.html'));
   bubbleWin.webContents.on('did-finish-load', () => {
     setInteractive(false);
+    bubbleWin.webContents.send('bubble-effects', effects);
     apply();
   });
 
@@ -311,6 +314,31 @@ function registerIpc() {
 
 // ---------- Called by the main process ----------
 
+function setEffects(next) {
+  effects = { ...effects, ...next };
+  if (alive(bubbleWin)) bubbleWin.webContents.send('bubble-effects', effects);
+}
+
+// Where the bubble sits and how big it is, for window recordings: the bubble window is not in that
+// capture, so the panel draws the camera into the video at this spot. Given the recorded window's
+// position (physical pixels, from window-tracker), the answer is relative to that window, so the
+// camera lands in the video right where the bubble covers the window on screen; a bubble outside
+// the window ends up at the nearest edge. Without it (the first moment of a recording), it falls
+// back to the bubble's spot on its own screen.
+function placement(windowRect) {
+  if (!alive(bubbleWin) || !visible()) return null;
+  const b = bubbleWin.getBounds();
+  if (state.size === 'full') return { full: true };
+  if (windowRect) {
+    const p = screen.dipToScreenRect(bubbleWin, b); // to physical pixels, like the window's position
+    const w = windowRect.right - windowRect.left;
+    const h = windowRect.bottom - windowRect.top;
+    return { full: false, x: (p.x - windowRect.left) / w, y: (p.y - windowRect.top) / h, size: p.height / h };
+  }
+  const d = screen.getDisplayMatching(b).bounds;
+  return { full: false, x: (b.x - d.x) / d.width, y: (b.y - d.y) / d.height, size: b.height / d.height };
+}
+
 function setCamera(deviceId) {
   state.cameraId = deviceId;
   apply();
@@ -346,6 +374,34 @@ function snapshot() {
   };
 }
 
+// Puts the bubble in a corner (or the centre) for agents that cannot drag it: of a screen, or of
+// the recorded window when its position (DIP) is given, so the camera lands in that corner of a
+// window recording. A window corner is checked against the screen so the bubble stays visible.
+const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center'];
+const WINDOW_MARGIN = 24; // windows are smaller than screens, so a tighter gap to their edge
+function placeCorner(corner, displayId, windowRect = null) {
+  if (!CORNERS.includes(corner)) throw new Error(`bubble-corner: use ${CORNERS.join(', ')}.`);
+  if (!alive(bubbleWin)) return;
+  if (state.size === 'full') setSize(state.beforeFull);
+  const display = windowRect ? screen.getDisplayMatching(windowRect) : (displayById(displayId) || screen.getDisplayMatching(bubbleWin.getBounds()));
+  const a = windowRect || display.workArea;
+  const gap = windowRect ? WINDOW_MARGIN : MARGIN;
+  const b = bubbleWin.getBounds();
+  const left = corner.endsWith('left') ? a.x + gap : corner.endsWith('right') ? a.x + a.width - b.width - gap : a.x + (a.width - b.width) / 2;
+  const top = corner.startsWith('top') ? a.y + gap : corner.startsWith('bottom') ? a.y + a.height - b.height - gap : a.y + (a.height - b.height) / 2;
+  bubbleWin.setBounds(clampInto({ x: Math.round(left), y: Math.round(top), width: b.width, height: b.height }, display.workArea));
+  placePill();
+  if (alive(toolbarWin) && toolbarWin.isVisible()) placeToolbar();
+}
+
+// For the smoke test: puts the bubble's top-left corner at a screen point (DIP), keeping its size.
+function moveTo(x, y) {
+  if (!alive(bubbleWin)) return;
+  const b = bubbleWin.getBounds();
+  bubbleWin.setBounds({ x: Math.round(x), y: Math.round(y), width: b.width, height: b.height });
+  placePill();
+}
+
 // For the smoke test: lets it send real mouse events into the windows.
 function contents() {
   return {
@@ -356,6 +412,6 @@ function contents() {
 }
 
 module.exports = {
-  create, setCamera, setSize, setEnabled, placeOn, setRecState,
-  snapshot, showToolbar, hideToolbar, area: currentArea, contents,
+  create, setCamera, setSize, setEnabled, placeOn, setRecState, setEffects, placement,
+  snapshot, showToolbar, hideToolbar, area: currentArea, contents, moveTo, placeCorner, CORNERS,
 };
