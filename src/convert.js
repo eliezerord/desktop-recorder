@@ -1,6 +1,8 @@
 // WebM to MP4 with ffmpeg. Kept free of Electron so it can be tested on its own (test/convert-test.js).
 const { spawn } = require('child_process');
-const ffmpegPath = require('ffmpeg-static');
+// In the installed app the code sits inside app.asar, which a program cannot run from. ffmpeg is
+// unpacked next to it (asarUnpack in package.json), so point at the unpacked copy.
+const ffmpegPath = require('ffmpeg-static').replace('app.asar', 'app.asar.unpacked');
 
 function convertToMp4(input, output, durationSec, onProgress = () => {}) {
   return new Promise((resolve, reject) => {

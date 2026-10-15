@@ -3,14 +3,46 @@
   "version": "0.1.0",
   "private": true,
   "description": "Graba la pantalla con una burbuja de cámara y guarda en MP4.",
+  "author": "eliezerord",
   "main": "src/main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "icon": "electron build/make-icon.js",
+    "dist": "electron-builder --win nsis"
   },
   "dependencies": {
     "ffmpeg-static": "5.3.0"
   },
   "devDependencies": {
-    "electron": "44.7.2"
+    "electron": "44.7.2",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.eliezerord.desktoprecorder",
+    "productName": "Desktop Recorder",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Desktop Recorder",
+      "artifactName": "Desktop-Recorder-Setup-${version}.${ext}"
+    }
   }
 }

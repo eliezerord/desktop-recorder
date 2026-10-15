@@ -10,6 +10,8 @@ const bubble = require('./bubble-windows');
 // DR_OUTPUT_DIR lets the smoke test save somewhere disposable instead of the Videos folder.
 const OUTPUT_DIR = () => process.env.DR_OUTPUT_DIR || path.join(app.getPath('videos'), 'Desktop Recorder');
 const PRELOAD = path.join(__dirname, 'preload.js');
+const ICON = path.join(__dirname, '..', 'build', 'icon.png'); // drawn by build/make-icon.js
+const APP_ID = 'com.eliezerord.desktoprecorder'; // same as build.appId in package.json
 
 // The smoke test keeps its own settings folder, so it never changes the user's saved choices
 // and can run while the app is open.
@@ -43,6 +45,7 @@ function createControlWindow() {
     height: 720,
     minWidth: 360,
     title: 'Desktop Recorder',
+    icon: ICON,
     autoHideMenuBar: true,
     webPreferences: { preload: PRELOAD, backgroundThrottling: false },
   });
@@ -135,6 +138,9 @@ function registerIpc() {
 }
 
 app.whenReady().then(() => {
+  // Windows groups the taskbar button and picks its icon by this id.
+  app.setAppUserModelId(APP_ID);
+
   // The control panel asks for the screen with getDisplayMedia; this answers with the chosen
   // screen and, when asked, the PC sound ('loopback' is Windows system audio).
   session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {

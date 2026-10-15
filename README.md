@@ -2,7 +2,15 @@
 
 Graba la pantalla con una burbuja de cámara, o solo la cámara, y guarda un MP4 listo para editar. Solo Windows. Hecha con Electron y ffmpeg.
 
-## Instalar
+## Descargar
+
+1. Entra en [Releases](https://github.com/eliezerord/desktop-recorder/releases/latest) y descarga `Desktop-Recorder-Setup-x.y.z.exe`.
+2. Ábrelo y sigue el instalador. Crea un acceso en el escritorio y en el menú Inicio.
+3. La primera vez Windows puede mostrar "Windows protegió tu PC", porque el instalador no está firmado. Pulsa **Más información** y luego **Ejecutar de todas formas**.
+
+Para desinstalar: Configuración, Aplicaciones, Desktop Recorder.
+
+## Para desarrollar
 
 Desde esta carpeta, una vez:
 
@@ -23,6 +31,16 @@ npm start
 - Grabar empieza tras una cuenta atrás de 3 segundos. Se puede grabar, pausar y parar desde el panel, desde la pastilla que hay junto a la burbuja, o con los atajos Ctrl+Shift+R (grabar o parar) y Ctrl+Shift+P (pausa).
 - Al pasar el ratón por la burbuja sale su barra: quitar cámara, pequeña, mediana y pantalla completa (Esc para salir). Ni la barra ni la pastilla salen en el video.
 - Los videos van a `Vídeos\Desktop Recorder\`. Si la conversión a MP4 falla, el WebM original se guarda ahí mismo.
+
+## Crear el instalador
+
+```bash
+npm run dist
+```
+
+Deja `dist/Desktop-Recorder-Setup-<versión>.exe` (la versión sale de `package.json`) y la app sin instalar en `dist/win-unpacked/`. La prueba completa de abajo también funciona con `dist/win-unpacked/Desktop Recorder.exe` en lugar de `electron.exe .`, y conviene pasarla antes de publicar, porque ahí es donde ffmpeg tiene que salir del paquete.
+
+El icono se dibuja por código en estilo Dots: `npm run icon` vuelve a generar `build/icon.png` y `build/icon.ico`, con una rejilla de puntos distinta para cada tamaño, así se lee bien hasta en 16 px.
 
 ## Probar
 
@@ -52,3 +70,4 @@ En Windows, la salida de un proceso que se corta se pierde. Añade `DR_LOG="C:\r
 - `src/recpill.html`, `recpill.js` - la pastilla de grabar, pausar y parar junto a la burbuja (no sale en el video).
 - `src/convert.js` - WebM a MP4 con ffmpeg.
 - `src/preload.js` - las llamadas que las ventanas pueden hacer al proceso principal.
+- `build/make-icon.js` - dibuja el icono; `build/icon.png` y `build/icon.ico` son su resultado.
