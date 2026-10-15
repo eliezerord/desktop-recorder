@@ -1,0 +1,88 @@
+:root {
+  --bg: #f4f4f2;
+  --card: #ffffff;
+  --ink: #17181c;
+  --muted: #6b6e76;
+  --line: #dddcd7;
+  --accent: #2f5bff;
+  --rec: #e5383b;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.4 "Segoe UI", system-ui, sans-serif;
+}
+
+main { padding: 16px; display: grid; gap: 12px; }
+
+header h1 { margin: 0; font-size: 18px; }
+
+section {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+h2 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+
+.row-title { display: flex; justify-content: space-between; align-items: center; }
+
+.hint { margin: 0; font-size: 12px; color: var(--muted); }
+
+button {
+  font: inherit;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+button:disabled { opacity: 0.45; cursor: default; }
+button.link { border: 0; padding: 0; background: none; color: var(--accent); font-size: 12px; }
+
+.segmented { display: grid; grid-auto-flow: column; gap: 6px; }
+.segmented button.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+select { font: inherit; padding: 7px; border-radius: 8px; border: 1px solid var(--line); width: 100%; }
+
+.check { display: flex; gap: 8px; align-items: center; }
+
+.screens { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.screen {
+  padding: 6px;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+}
+.screen img { width: 100%; border-radius: 4px; display: block; }
+.screen small { color: var(--muted); }
+.screen.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+
+#preview { width: 100%; border-radius: 8px; background: #000; transform: scaleX(-1); }
+
+.controls { text-align: center; }
+.timer { font-size: 32px; font-variant-numeric: tabular-nums; font-weight: 600; }
+.timer.live { color: var(--rec); }
+.primary { background: var(--rec); border-color: var(--rec); color: #fff; font-weight: 600; padding: 12px; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.status { margin: 0; min-height: 20px; }
+
+.countdown {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(23, 24, 28, 0.85);
+  color: #fff;
+  font-size: 120px;
+  font-weight: 700;
+}
+[hidden] { display: none !important; }

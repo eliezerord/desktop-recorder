@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'">
+  <title>Desktop Recorder</title>
+  <link rel="stylesheet" href="control.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Desktop Recorder</h1>
+      <p class="hint">Este panel no sale en el video.</p>
+    </header>
+
+    <section>
+      <h2>Qué grabar</h2>
+      <div class="segmented" id="mode">
+        <button data-mode="screen" class="on">Pantalla + cámara</button>
+        <button data-mode="camera">Solo cámara</button>
+      </div>
+    </section>
+
+    <section id="screenSection">
+      <div class="row-title">
+        <h2>Pantalla</h2>
+        <button class="link" id="refreshScreens">Actualizar</button>
+      </div>
+      <div class="screens" id="screens"></div>
+    </section>
+
+    <section>
+      <div class="row-title">
+        <h2>Cámara</h2>
+        <button class="link" id="refreshDevices">Actualizar</button>
+      </div>
+      <select id="camera"></select>
+      <p class="hint">¿No ves la cámara virtual de OBS? Ábrela en OBS con "Iniciar cámara virtual" y pulsa Actualizar.</p>
+      <video id="preview" autoplay muted playsinline hidden></video>
+    </section>
+
+    <section id="bubbleSection">
+      <h2>Burbuja</h2>
+      <div class="segmented" id="bubbleSize">
+        <button data-size="small" class="on">Pequeña</button>
+        <button data-size="medium">Mediana</button>
+        <button data-size="full">Completa</button>
+        <button data-size="hidden">Oculta</button>
+      </div>
+      <p class="hint">Arrástrala para moverla. Pasa el ratón por encima para ver sus controles. Esc sale de pantalla completa.</p>
+    </section>
+
+    <section>
+      <h2>Audio</h2>
+      <select id="mic"></select>
+      <label class="check" id="systemAudioRow"><input type="checkbox" id="systemAudio"> Grabar también el sonido del PC</label>
+    </section>
+
+    <section class="controls">
+      <div class="timer" id="timer">00:00</div>
+      <button class="primary" id="record">Grabar</button>
+      <div class="pair">
+        <button id="pause" disabled>Pausar</button>
+        <button id="stop" disabled>Parar</button>
+      </div>
+      <p class="status" id="status">Listo.</p>
+      <p class="hint">Atajos: Ctrl+Shift+R grabar o parar · Ctrl+Shift+P pausa</p>
+      <button class="link" id="openFolder">Abrir carpeta de grabaciones</button>
+    </section>
+  </main>
+
+  <div class="countdown" id="countdown" hidden></div>
+  <script src="control.js"></script>
+</body>
+</html>

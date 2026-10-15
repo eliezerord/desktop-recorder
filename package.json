@@ -1,0 +1,16 @@
+{
+  "name": "desktop-recorder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Graba la pantalla con una burbuja de cámara y guarda en MP4.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "ffmpeg-static": "5.3.0"
+  },
+  "devDependencies": {
+    "electron": "44.7.2"
+  }
+}

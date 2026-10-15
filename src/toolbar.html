@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>Controles de la burbuja</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+    .bar {
+      box-sizing: border-box;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      padding: 0 6px;
+      background: #1d1e22;
+      border-radius: 12px;
+    }
+    button {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: #b9bbc2;
+      cursor: pointer;
+      padding: 0;
+    }
+    button:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+    button > * { pointer-events: none; } /* the click always lands on the button, never on its icon */
+    button.on { background: rgba(255, 255, 255, 0.2); color: #fff; }
+    svg { width: 16px; height: 16px; }
+    .exit { display: none; }
+    body.full .enter { display: none; }
+    body.full .exit { display: block; }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <button data-action="close" title="Quitar cámara" aria-label="Quitar cámara">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+    </button>
+    <button data-action="small" title="Pequeña" aria-label="Burbuja pequeña">
+      <svg viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3.5"/></svg>
+    </button>
+    <button data-action="medium" title="Mediana" aria-label="Burbuja mediana">
+      <svg viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="6.5"/></svg>
+    </button>
+    <button data-action="full" id="full" title="Pantalla completa" aria-label="Pantalla completa">
+      <svg class="enter" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg>
+      <svg class="exit" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 2v4H2M10 2v4h4M14 10h-4v4M2 10h4v4"/></svg>
+    </button>
+  </div>
+  <script src="toolbar.js"></script>
+</body>
+</html>

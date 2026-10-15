@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>Controles de grabación</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none; }
+    .pill {
+      box-sizing: border-box;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-evenly;
+      padding: 8px 0;
+      background: #1d1e22;
+      border-radius: 26px;
+      font: 600 12px/1 "Segoe UI", system-ui, sans-serif;
+      color: #b9bbc2;
+    }
+    button {
+      width: 40px;
+      height: 40px;
+      display: grid;
+      place-items: center;
+      border: 0;
+      border-radius: 50%;
+      background: transparent;
+      color: #e8e9ec;
+      cursor: pointer;
+      padding: 0;
+      font: inherit;
+    }
+    button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
+    button > * { pointer-events: none; } /* the click always lands on the button, never on its icon */
+    button:disabled { opacity: 0.35; cursor: default; }
+    svg { width: 18px; height: 18px; }
+    #main svg { width: 22px; height: 22px; color: #e5383b; }
+    #main .count { font-size: 18px; color: #fff; }
+    .time { font-variant-numeric: tabular-nums; }
+    body.live .time { color: #fff; }
+    body.paused .time { animation: blink 1s steps(2, start) infinite; }
+    @keyframes blink { to { visibility: hidden; } }
+  </style>
+</head>
+<body>
+  <div class="pill">
+    <button id="main" title="Grabar (Ctrl+Shift+R)" aria-label="Grabar"></button>
+    <span class="time" id="time">00:00</span>
+    <button id="pause" title="Pausar (Ctrl+Shift+P)" aria-label="Pausar" disabled></button>
+  </div>
+  <script src="recpill.js"></script>
+</body>
+</html>
