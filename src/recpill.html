@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
-  <title>Controles de grabación</title>
+  <title>Recording controls</title>
   <style>
     html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none; }
     .pill {
@@ -46,10 +46,11 @@
 </head>
 <body>
   <div class="pill">
-    <button id="main" title="Grabar (Ctrl+Shift+R)" aria-label="Grabar"></button>
+    <button id="main"></button>
     <span class="time" id="time">00:00</span>
-    <button id="pause" title="Pausar (Ctrl+Shift+P)" aria-label="Pausar" disabled></button>
+    <button id="pause" disabled></button>
   </div>
+  <script src="i18n.js"></script>
   <script src="recpill.js"></script>
 </body>
 </html>

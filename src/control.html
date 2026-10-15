@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' data: file:; style-src 'self'">
@@ -7,121 +7,130 @@
   <link rel="stylesheet" href="control.css">
 </head>
 <body>
+  <!-- Texts come from i18n.js: data-i18n fills the text, data-i18n-title the tooltip. -->
   <main>
     <header>
-      <h1>Desktop Recorder</h1>
-      <p class="hint">Este panel no sale en el video.</p>
+      <div class="row-title">
+        <h1>Desktop Recorder</h1>
+        <select id="lang" aria-label="Language">
+          <option value="en">English</option>
+          <option value="es">Español</option>
+          <option value="pt">Português</option>
+        </select>
+      </div>
+      <p class="hint" data-i18n="panel.hint"></p>
     </header>
 
     <section>
-      <h2>Qué grabar</h2>
+      <h2 data-i18n="what.title"></h2>
       <div class="segmented" id="mode">
-        <button data-mode="screen" class="on">Pantalla</button>
-        <button data-mode="window">Ventana</button>
-        <button data-mode="camera">Solo cámara</button>
+        <button data-mode="screen" class="on" data-i18n="mode.screen"></button>
+        <button data-mode="window" data-i18n="mode.window"></button>
+        <button data-mode="camera" data-i18n="mode.camera"></button>
       </div>
     </section>
 
     <section id="screenSection">
       <div class="row-title">
-        <h2>Pantalla</h2>
-        <button class="link" id="refreshScreens">Actualizar</button>
+        <h2 data-i18n="screen.title"></h2>
+        <button class="link" id="refreshScreens" data-i18n="refresh"></button>
       </div>
       <div class="screens" id="screens"></div>
     </section>
 
     <section id="windowSection" hidden>
       <div class="row-title">
-        <h2>Ventana</h2>
-        <button class="link" id="refreshWindows">Actualizar</button>
+        <h2 data-i18n="window.title"></h2>
+        <button class="link" id="refreshWindows" data-i18n="refresh"></button>
       </div>
       <div class="screens" id="windows"></div>
-      <p class="hint">Para grabar una pestaña, elige la ventana del navegador. La cámara sale en el video donde tengas la burbuja.</p>
+      <p class="hint" data-i18n="window.hint"></p>
     </section>
 
     <section>
       <div class="row-title">
-        <h2>Cámara</h2>
-        <button class="link" id="refreshDevices">Actualizar</button>
+        <h2 data-i18n="camera.title"></h2>
+        <button class="link" id="refreshDevices" data-i18n="refresh"></button>
       </div>
       <select id="camera"></select>
-      <p class="hint">¿No ves la cámara virtual de OBS? Ábrela en OBS con "Iniciar cámara virtual" y pulsa Actualizar.</p>
+      <p class="hint" data-i18n="camera.obsHint"></p>
       <canvas id="preview" hidden></canvas>
     </section>
 
     <section id="bubbleSection">
-      <h2>Burbuja</h2>
+      <h2 data-i18n="bubble.title"></h2>
       <div class="segmented" id="bubbleSize">
-        <button data-size="small" class="on">Pequeña</button>
-        <button data-size="medium">Mediana</button>
-        <button data-size="full">Completa</button>
-        <button data-size="hidden">Oculta</button>
+        <button data-size="small" class="on" data-i18n="size.small"></button>
+        <button data-size="medium" data-i18n="size.medium"></button>
+        <button data-size="full" data-i18n="size.full"></button>
+        <button data-size="hidden" data-i18n="size.hidden"></button>
       </div>
-      <p class="hint">Arrástrala para moverla. Pasa el ratón por encima para ver sus controles. Esc sale de pantalla completa.</p>
+      <p class="hint" data-i18n="bubble.hint"></p>
     </section>
 
     <section>
-      <h2>Efectos de cámara</h2>
+      <h2 data-i18n="fx.title"></h2>
       <div class="segmented" id="background">
-        <button data-bg="none" class="on">Normal</button>
-        <button data-bg="blur">Desenfoque</button>
-        <button data-bg="color">Color</button>
-        <button data-bg="image">Imagen</button>
+        <button data-bg="none" class="on" data-i18n="bg.none"></button>
+        <button data-bg="blur" data-i18n="bg.blur"></button>
+        <button data-bg="color" data-i18n="bg.color"></button>
+        <button data-bg="image" data-i18n="bg.image"></button>
       </div>
-      <label class="row" id="bgColorRow" hidden>Color de fondo <input type="color" id="bgColor" value="#2f5bff"></label>
+      <label class="row" id="bgColorRow" hidden><span data-i18n="fx.bgColor"></span> <input type="color" id="bgColor" value="#2f5bff"></label>
       <div class="row" id="bgImageRow" hidden>
-        <button id="pickImage">Elegir imagen…</button>
+        <button id="pickImage" data-i18n="fx.pickImage"></button>
         <span class="hint" id="bgImageName"></span>
       </div>
       <p class="hint" id="effectStatus"></p>
-      <label class="check"><input type="checkbox" id="border"> Borde alrededor de la cámara</label>
+      <label class="check"><input type="checkbox" id="border"> <span data-i18n="fx.border"></span></label>
       <div class="row" id="borderRow" hidden>
         <input type="color" id="borderColor" value="#ffffff">
         <div class="swatches" id="swatches">
-          <button data-color="#ffffff" title="Blanco"></button>
-          <button data-color="#121110" title="Negro"></button>
-          <button data-color="#2f5bff" title="Azul"></button>
-          <button data-color="#e5383b" title="Rojo"></button>
-          <button data-color="#ffd60a" title="Amarillo"></button>
-          <button data-color="#2ec27e" title="Verde"></button>
+          <button data-color="#ffffff" data-i18n-title="color.white"></button>
+          <button data-color="#121110" data-i18n-title="color.black"></button>
+          <button data-color="#2f5bff" data-i18n-title="color.blue"></button>
+          <button data-color="#e5383b" data-i18n-title="color.red"></button>
+          <button data-color="#ffd60a" data-i18n-title="color.yellow"></button>
+          <button data-color="#2ec27e" data-i18n-title="color.green"></button>
         </div>
       </div>
     </section>
 
     <section>
-      <h2>Audio</h2>
+      <h2 data-i18n="audio.title"></h2>
       <select id="mic"></select>
-      <label class="check" id="systemAudioRow"><input type="checkbox" id="systemAudio"> Grabar también el sonido del PC</label>
+      <label class="check" id="systemAudioRow"><input type="checkbox" id="systemAudio"> <span data-i18n="audio.system"></span></label>
     </section>
 
     <section id="clicksSection">
-      <h2>Ratón</h2>
-      <label class="check"><input type="checkbox" id="clicks"> Resaltar los clics en el video</label>
+      <h2 data-i18n="mouse.title"></h2>
+      <label class="check"><input type="checkbox" id="clicks"> <span data-i18n="mouse.clicks"></span></label>
     </section>
 
     <section class="controls">
       <div class="timer" id="timer">00:00</div>
-      <button class="primary" id="record">Grabar</button>
+      <button class="primary" id="record"></button>
       <div class="pair">
-        <button id="pause" disabled>Pausar</button>
-        <button id="stop" disabled>Parar</button>
+        <button id="pause" disabled></button>
+        <button id="stop" disabled data-i18n="rec.stop"></button>
       </div>
-      <p class="status" id="status">Listo.</p>
-      <p class="hint">Atajos: Ctrl+Shift+R grabar o parar · Ctrl+Shift+P pausa</p>
+      <p class="status" id="status"></p>
+      <p class="hint" data-i18n="rec.shortcuts"></p>
     </section>
 
     <section>
-      <h2>Carpeta de grabaciones</h2>
+      <h2 data-i18n="folder.title"></h2>
       <p class="path" id="outputDir"></p>
       <div class="row">
-        <button id="chooseFolder">Cambiar…</button>
-        <button id="openFolder">Abrir</button>
-        <button class="link" id="resetFolder">Volver a Vídeos</button>
+        <button id="chooseFolder" data-i18n="folder.change"></button>
+        <button id="openFolder" data-i18n="folder.open"></button>
+        <button class="link" id="resetFolder" data-i18n="folder.reset"></button>
       </div>
     </section>
   </main>
 
   <div class="countdown" id="countdown" hidden></div>
+  <script src="i18n.js"></script>
   <script type="module" src="control.js"></script>
 </body>
 </html>

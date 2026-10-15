@@ -65,7 +65,7 @@ function startHook() {
     hookError = null;
   } catch (err) {
     hookError = err.message;
-    console.error(`No se pudo vigilar los clics: ${err.message}`);
+    console.error(`The click hook could not start: ${err.message}`);
   }
 }
 

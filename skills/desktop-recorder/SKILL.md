@@ -1,6 +1,6 @@
 ---
 name: desktop-recorder
-description: Records the screen, a window or the camera with Desktop Recorder on Windows through its drec command, and changes any of the app's settings (screen or window, camera, mic, PC sound, bubble size and corner, background blur, border, click highlights, save folder), including tutorials the agent performs itself while it records. Use when the user asks to record their screen, a monitor or a window, get ready to record, make a screen recording, tutorial, walkthrough or demo video, film the agent doing a task "like a human", or mentions Desktop Recorder or drec; Spanish requests count too, like "graba mi pantalla", "graba el monitor 2", "graba solo la ventana de", "prepárate para grabar" or "haz un tutorial grabando".
+description: Records the screen, a window or the camera with Desktop Recorder on Windows through its drec command, and changes any of the app's settings (screen or window, camera, mic, PC sound, bubble size and corner, background blur, border, click highlights, save folder, interface language), including tutorials the agent performs itself while it records. Use when the user asks to record their screen, a monitor or a window, get ready to record, make a screen recording, tutorial, walkthrough or demo video, film the agent doing a task "like a human", or mentions Desktop Recorder or drec; Spanish requests count too, like "graba mi pantalla", "graba el monitor 2", "graba solo la ventana de", "prepárate para grabar" or "haz un tutorial grabando".
 ---
 
 # Desktop Recorder
@@ -35,6 +35,7 @@ If the app is closed, `drec` opens it. Add `--json` when you need to read the ou
 | "Show my clicks" | `--clicks on` |
 | "Use my OBS camera" | `--camera "OBS"` (OBS must have its virtual camera started) |
 | "Save them in D:/Videos" | `--output-dir "D:/Videos"` |
+| "Put the app in Spanish" | `--language es` (`en`, `es` or `pt`) |
 | "Stop" / "Pause" | `drec stop` (prints the MP4 path) / `drec pause`, `drec resume` |
 
 Settings stay as set until changed, so `drec status` shows what the next recording will use.

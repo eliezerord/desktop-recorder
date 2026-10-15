@@ -2,7 +2,7 @@
 
 A free screen recorder for Windows. Record a screen or a single window with a camera bubble on top, or just the camera, and get an MP4 that is ready to edit. AI agents can drive it too, through the `drec` command.
 
-The app's interface is in Spanish. The `drec` command and this README are in English.
+The interface comes in English, Spanish and Brazilian Portuguese: pick one at the top of the panel, or with `drec set --language es`.
 
 ## Download
 
@@ -21,7 +21,7 @@ To uninstall: Settings, Apps, Desktop Recorder.
 - **Microphone and PC sound**, mixed into one track.
 - **Record, pause, resume and stop** from the panel, from the pill next to the bubble, or with Ctrl+Shift+R and Ctrl+Shift+P.
 - **The panel, the bubble toolbar and the pill never show up in the video.**
-- **Saves an MP4** (H.264, constant 30 fps, AAC audio) to your own `Videos\Desktop Recorder` folder. Change it in the panel ("Carpeta de grabaciones") or with `drec set --output-dir`.
+- **Saves an MP4** (H.264, constant 30 fps, AAC audio) to your own `Videos\Desktop Recorder` folder. Change it in the panel ("Recordings folder") or with `drec set --output-dir`.
 
 Everything runs on your PC. The background effect uses Google's MediaPipe selfie segmenter, which ships inside the app, so it works offline.
 
@@ -40,7 +40,7 @@ drec stop                          # waits for the MP4 and prints its path
 drec record --seconds 30 --window "Chrome" --background blur
 ```
 
-Every setting in the app can be changed from `drec`: what to record (`--mode`, `--screen`, `--window`), camera and mic, PC sound, bubble size and corner, background effect, border and its color, click highlights, and the save folder. `drec help` lists every option. If the app is closed, `drec` opens it.
+Every setting in the app can be changed from `drec`: what to record (`--mode`, `--screen`, `--window`), camera and mic, PC sound, bubble size and corner, background effect, border and its color, click highlights, the save folder and the interface language. `drec help` lists every option. If the app is closed, `drec` opens it.
 
 ### Agent usage
 
@@ -97,6 +97,7 @@ It writes one `SMOKE {...}` line with every check. Run it on `dist/win-unpacked/
 - `src/click-overlay.js`, `src/clicks.*` - click highlights.
 - `src/cli-server.js` and `cli/drec.js`, `cli/drec.cmd` - the `drec` command, app side and terminal side.
 - `src/convert.js` - WebM to MP4 with ffmpeg.
+- `src/i18n.js` - every text in English, Spanish and Portuguese.
 - `src/smoke.js` - the smoke test.
 - `build/` - the icon, the script that draws it, and the installer step that adds `drec` to your PATH.
 

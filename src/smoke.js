@@ -1,30 +1,63 @@
 // Smoke test, run with DR_SMOKE=1 (see README.md). It drives the real app with simulated clicks and
 // the same calls the drec CLI uses, prints one "SMOKE {...}" line with every check, and quits.
+// Checks read the app's state, not its texts, so they hold in every interface language.
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { screen } = require('electron');
 const windowTracker = require('./window-tracker');
 
-async function run({ app, bubble, clickOverlay, panelWin, listWindows, log, outputDir }) {
+async function run({ app, bubble, clickOverlay, panelWin, listWindows, log, outputDir, setLanguage }) {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const step = (name) => log(`SMOKE-STEP ${name}`);
   const panel = (js) => panelWin().webContents.executeJavaScript(js);
   const drec = (name, args = {}) => panel(`window.drec.call(${JSON.stringify(name)}, ${JSON.stringify(args)})`);
+  const phase = async () => (await drec('status')).data.phase;
   const panelSize = () => panel(`document.querySelector('#bubbleSize .on')?.dataset.size`);
   const checks = {};
 
-  step('arranque');
+  step('start');
   for (let i = 0; i < 40 && !(await panel('Boolean(window.drecReady)')); i++) await wait(500);
   await wait(1500);
-  step('leyendo el panel');
+  step('read the panel');
   const devices = await panel(`({
     screens: document.querySelectorAll('#screens .screen').length,
     cameras: [...document.querySelectorAll('#camera option')].map((o) => o.textContent),
     mics: document.querySelectorAll('#mic option').length - 1,
   })`);
 
-  step('tamaños');
+  step('languages');
+  // English by default; Spanish and Portuguese reach the panel, the bubble toolbar and the pill.
+  const { toolbar: bar, pill, bubble: bubbleWc } = bubble.contents();
+  const texts = async () => ({
+    lang: await panel('document.documentElement.lang'),
+    record: await panel(`document.getElementById('record').textContent`),
+    what: await panel(`document.querySelector('[data-i18n="what.title"]').textContent`),
+    empty: await panel(`[...document.querySelectorAll('[data-i18n]')].filter((e) => !e.textContent.trim()).length`),
+    pill: await pill.executeJavaScript(`document.getElementById('main').title`),
+    toolbar: await bar.executeJavaScript(`document.querySelector('[data-action="small"]').title`),
+    screen: await panel(`document.querySelector('#screens .screen span')?.textContent || ''`),
+  });
+  const en = await texts();
+  setLanguage('es');
+  await wait(1500);
+  const es = await texts();
+  setLanguage('pt');
+  await wait(1500);
+  const pt = await texts();
+  setLanguage('en');
+  await wait(1500);
+  const back = await texts();
+  Object.assign(checks, {
+    'english by default': en.lang === 'en' && en.record === 'Record' && en.what === 'What to record' && en.screen.startsWith('Screen'),
+    'spanish everywhere': es.record === 'Grabar' && es.what === 'Qué grabar' && es.pill.startsWith('Grabar') && es.toolbar === 'Pequeña' && es.screen.startsWith('Pantalla'),
+    'portuguese everywhere': pt.record === 'Gravar' && pt.what === 'O que gravar' && pt.pill.startsWith('Gravar') && pt.toolbar === 'Pequena' && pt.screen.startsWith('Tela'),
+    'back to english': back.lang === 'en' && back.record === 'Record' && back.toolbar === 'Small',
+    'no text left empty': en.empty === 0 && es.empty === 0 && pt.empty === 0,
+  });
+  log(`languages: ${JSON.stringify({ en, es, pt })}`);
+
+  step('sizes');
   const startSmall = bubble.snapshot().bounds;
   bubble.setSize('medium');
   await wait(400);
@@ -52,10 +85,9 @@ async function run({ app, bubble, clickOverlay, panelWin, listWindows, log, outp
     wc.sendInputEvent({ type: 'mouseUp', ...r, button: 'left', clickCount: 1 });
   };
   const HUMAN_CLICK_MS = 400;
-  const { toolbar: bar, pill, bubble: bubbleWc } = bubble.contents();
-  const pillMain = () => pill.executeJavaScript(`document.getElementById('main').title`);
+  const pillIcon = () => pill.executeJavaScript(`document.getElementById('main').dataset.icon`);
 
-  step('clic en la barra');
+  step('toolbar click');
   bubble.setSize('medium');
   await wait(300);
   bubble.showToolbar();
@@ -73,45 +105,47 @@ async function run({ app, bubble, clickOverlay, panelWin, listWindows, log, outp
   const reopened = bubble.snapshot();
 
   Object.assign(checks, {
-    'clic en Pequeña de la barra': afterClick.bounds.width === 200,
-    'pastilla visible': afterClick.pillVisible,
-    'pastilla al lado, sin tapar la burbuja': p.x + p.width <= b.x || p.x >= b.x + b.width,
-    'la X cierra burbuja y pastilla': !closed.visible && !closed.pillVisible,
-    'vuelven al elegir tamaño': reopened.visible && reopened.pillVisible,
-    'mediana mide 400': medium.bounds.width === 400 && medium.bounds.height === 400,
-    'el panel se sincroniza': medium.panel === 'medium' && full.panel === 'full',
-    'completa cubre la pantalla': JSON.stringify(full.bounds) === JSON.stringify(full.area),
-    'barra dentro en completa': full.toolbarBounds.y + full.toolbarBounds.height <= full.area.y + full.area.height,
-    'vuelve a pequeña (200)': small.bounds.width === 200,
-    'vuelve cerca de donde estaba': Math.abs(small.bounds.x - startSmall.x) <= 100 && Math.abs(small.bounds.y - startSmall.y) <= 100,
-    'barra centrada bajo la burbuja': Math.abs((small.toolbarBounds.x + small.toolbarBounds.width / 2) - (small.bounds.x + small.bounds.width / 2)) <= 1,
+    'toolbar Small click': afterClick.bounds.width === 200,
+    'pill visible': afterClick.pillVisible,
+    'pill beside the bubble': p.x + p.width <= b.x || p.x >= b.x + b.width,
+    'X closes bubble and pill': !closed.visible && !closed.pillVisible,
+    'both return with a size': reopened.visible && reopened.pillVisible,
+    'medium is 400': medium.bounds.width === 400 && medium.bounds.height === 400,
+    'panel stays in sync': medium.panel === 'medium' && full.panel === 'full',
+    'full covers the screen': JSON.stringify(full.bounds) === JSON.stringify(full.area),
+    'toolbar inside in full': full.toolbarBounds.y + full.toolbarBounds.height <= full.area.y + full.area.height,
+    'back to small (200)': small.bounds.width === 200,
+    'back near where it was': Math.abs(small.bounds.x - startSmall.x) <= 100 && Math.abs(small.bounds.y - startSmall.y) <= 100,
+    'toolbar centred under the bubble': Math.abs((small.toolbarBounds.x + small.toolbarBounds.width / 2) - (small.bounds.x + small.bounds.width / 2)) <= 1,
   });
   // The measurements behind the size checks, so a failure shows what the bubble actually did.
-  log(`medidas: inicio ${JSON.stringify(startSmall)} mediana ${JSON.stringify(medium.bounds)} completa ${JSON.stringify(full.bounds)} área ${JSON.stringify(full.area)} pequeña ${JSON.stringify(small.bounds)}`);
+  log(`sizes: start ${JSON.stringify(startSmall)} medium ${JSON.stringify(medium.bounds)} full ${JSON.stringify(full.bounds)} area ${JSON.stringify(full.area)} small ${JSON.stringify(small.bounds)}`);
 
-  step('grabación desde la pastilla');
+  step('record from the pill');
   await drec('apply', { mode: 'screen', systemAudio: true });
-  checks['pastilla dice Grabar'] = (await pillMain()).startsWith('Grabar');
+  checks['pill shows record'] = (await pillIcon()) === 'record';
   await clickIn(pill, '#main', HUMAN_CLICK_MS);
   await wait(3500 + 2000); // countdown, then 2 seconds of recording
-  checks['pastilla dice Parar al grabar'] = (await pillMain()).startsWith('Parar');
+  checks['pill shows stop while recording'] = (await pillIcon()) === 'stop';
   await clickIn(pill, '#pause', HUMAN_CLICK_MS);
   await wait(1000);
-  checks['pausa con un toque'] = (await panel(`document.getElementById('status').textContent`)) === 'En pausa.';
+  checks['one click pauses'] = (await phase()) === 'paused';
   await clickIn(pill, '#pause', HUMAN_CLICK_MS);
   await wait(2000);
-  checks['reanuda con un toque'] = (await panel(`document.getElementById('status').textContent`)) === 'Grabando.';
+  checks['one click resumes'] = (await phase()) === 'recording';
   await clickIn(pill, '#main', HUMAN_CLICK_MS);
   await wait(500);
-  checks['para con un toque'] = !(await pillMain()).startsWith('Parar');
-  let status = '';
-  for (let i = 0; i < 60 && !/Guardado|No se pudo/.test(status); i++) {
+  checks['one click stops'] = (await pillIcon()) !== 'stop';
+  let saved = null;
+  for (let i = 0; i < 60; i++) {
+    const s = (await drec('status')).data;
+    if (s.phase === 'idle') { saved = s.lastFile; break; }
     await wait(1000);
-    status = await panel(`document.getElementById('status').textContent`);
   }
-  checks['MP4 de pantalla guardado'] = status.startsWith('Guardado');
+  checks['screen MP4 saved'] = Boolean(saved) && fs.existsSync(saved);
+  checks['file named in the language'] = Boolean(saved) && path.basename(saved).startsWith('Recording ');
 
-  step('resaltar clics');
+  step('click highlights');
   // The overlay must cover the recorded screen while recording and draw a circle for a click.
   await drec('apply', { mode: 'screen', clicks: true, systemAudio: false });
   const clickStart = await drec('start');
@@ -124,14 +158,14 @@ async function run({ app, bubble, clickOverlay, panelWin, listWindows, log, outp
   const ripples = await ov.contents.executeJavaScript('window.rippleCount()');
   const clickStop = await drec('stop');
   await wait(300);
-  checks['capa de clics sobre la pantalla grabada'] = clickStart.ok && ov.visible && Boolean(recorded);
-  checks['detector de clics en marcha'] = ov.hookRunning && !ov.hookError;
-  checks['dibuja el círculo del clic'] = ripples > 0;
-  checks['la capa se quita al parar'] = clickStop.ok && !clickOverlay.snapshot().visible && !clickOverlay.snapshot().hookRunning;
-  if (ov.hookError) log(`clics: ${ov.hookError}`);
+  checks['click overlay over the recorded screen'] = clickStart.ok && ov.visible && Boolean(recorded);
+  checks['click hook running'] = ov.hookRunning && !ov.hookError;
+  checks['click circle drawn'] = ripples > 0;
+  checks['overlay removed on stop'] = clickStop.ok && !clickOverlay.snapshot().visible && !clickOverlay.snapshot().hookRunning;
+  if (ov.hookError) log(`clicks: ${ov.hookError}`);
   await drec('apply', { clicks: false });
 
-  step('efectos');
+  step('effects');
   await drec('apply', { background: 'blur', border: true, borderColor: '#e5383b' });
   let fx = {};
   for (let i = 0; i < 40; i++) {
@@ -140,12 +174,12 @@ async function run({ app, bubble, clickOverlay, panelWin, listWindows, log, outp
     await wait(500);
   }
   const ring = await bubbleWc.executeJavaScript(`getComputedStyle(document.getElementById('bubble')).borderTopColor`);
-  checks['el desenfoque carga en la burbuja'] = Boolean(fx.effectReady) && !fx.error;
-  checks['borde rojo en la burbuja'] = ring === 'rgb(229, 56, 59)';
+  checks['blur loads in the bubble'] = Boolean(fx.effectReady) && !fx.error;
+  checks['red ring on the bubble'] = ring === 'rgb(229, 56, 59)';
 
-  step('grabar una ventana');
+  step('record a window');
   const wins = await listWindows(false);
-  checks['hay ventanas para grabar'] = wins.length > 0;
+  checks['windows to record'] = wins.length > 0;
   if (wins.length) {
     await drec('apply', { mode: 'window', window: { id: wins[0].id, name: wins[0].name }, systemAudio: false, clicks: true });
     const started = await drec('start');
@@ -170,17 +204,17 @@ async function run({ app, bubble, clickOverlay, panelWin, listWindows, log, outp
     const expected = rect ? { x: INSET / (rect.right - rect.left), y: INSET / (rect.bottom - rect.top) } : null;
     await wait(1500);
     const stopped = await drec('stop');
-    checks['graba una ventana'] = started.ok && stopped.ok && fs.existsSync(stopped.data.file);
-    checks['sigue la posición de la ventana'] = Boolean(rect) && winSnap.mode === 'window' && !winSnap.visible;
-    checks['clic dentro de la ventana sale en el video'] = windowRipples > 0;
+    checks['records a window'] = started.ok && stopped.ok && fs.existsSync(stopped.data.file);
+    checks['follows the window position'] = Boolean(rect) && winSnap.mode === 'window' && !winSnap.visible;
+    checks['click inside the window is in the video'] = windowRipples > 0;
     const CLOSE = 0.02; // within 2% of the window's size
-    checks['cámara donde la burbuja tapa la ventana'] = Boolean(cameraSpot) && Math.abs(cameraSpot.x - expected.x) < CLOSE && Math.abs(cameraSpot.y - expected.y) < CLOSE;
-    log(`cámara en ventana: esperado ${JSON.stringify(expected)} obtenido ${JSON.stringify(cameraSpot)} ventana ${JSON.stringify(rect)}`);
-    if (!stopped.ok) log(`ventana: ${stopped.error || started.error}`);
+    checks['camera where the bubble covers the window'] = Boolean(cameraSpot) && Math.abs(cameraSpot.x - expected.x) < CLOSE && Math.abs(cameraSpot.y - expected.y) < CLOSE;
+    log(`camera in window: expected ${JSON.stringify(expected)} got ${JSON.stringify(cameraSpot)} window ${JSON.stringify(rect)}`);
+    if (!stopped.ok) log(`window: ${stopped.error || started.error}`);
     await drec('apply', { clicks: false });
   }
 
-  // The user's case: a window on the right half of the second screen. A made-up window position
+  // A user's case: a window on the right half of the second screen. A made-up window position
   // there, and the bubble placed just inside its top-left corner.
   const second = screen.getAllDisplays().find((d) => d.id !== screen.getPrimaryDisplay().id);
   if (second) {
@@ -191,34 +225,34 @@ async function run({ app, bubble, clickOverlay, panelWin, listWindows, log, outp
     await wait(200);
     const spot = bubble.placement(fakeWindow);
     const scale = second.scaleFactor;
-    checks['cámara bien en una ventana de la segunda pantalla'] = Boolean(spot)
+    checks['camera right in a window on the second screen'] = Boolean(spot)
       && Math.abs(spot.x - (40 * scale) / phys.width) < 0.02 && Math.abs(spot.y - (40 * scale) / phys.height) < 0.02;
-    log(`segunda pantalla: ventana ${JSON.stringify(fakeWindow)} cámara ${JSON.stringify(spot)}`);
+    log(`second screen: window ${JSON.stringify(fakeWindow)} camera ${JSON.stringify(spot)}`);
     bubble.placeOn(screen.getPrimaryDisplay().id);
   }
 
-  step('solo cámara con desenfoque');
+  step('camera only with blur');
   await drec('apply', { mode: 'camera' });
   await wait(1500);
   const camStart = await drec('start');
   await wait(3000);
   const camStop = await drec('stop');
-  checks['graba solo cámara con efecto'] = camStart.ok && camStop.ok && fs.existsSync(camStop.data.file);
-  if (!camStop.ok) log(`cámara: ${camStop.error || camStart.error}`);
+  checks['records camera only with the effect'] = camStart.ok && camStop.ok && fs.existsSync(camStop.data.file);
+  if (!camStop.ok) log(`camera: ${camStop.error || camStart.error}`);
 
-  step('cli drec');
+  step('drec cli');
   // The real CLI, run the way the installed drec.cmd runs it: this exe acting as Node.
   const cli = (argv, env = {}) => new Promise((resolve) => {
     // Installed, the CLI sits in resources/cli next to the app archive; in the source folder, in cli/.
     const drecJs = app.isPackaged ? path.join(process.resourcesPath, 'cli', 'drec.js') : path.join(__dirname, '..', 'cli', 'drec.js');
-    const p = spawn(process.execPath, [drecJs, ...argv, '--json'], {
+    const child = spawn(process.execPath, [drecJs, ...argv, '--json'], {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...env },
     });
     let out = '';
     let err = '';
-    p.stdout.on('data', (d) => { out += d; });
-    p.stderr.on('data', (d) => { err += d; });
-    p.on('close', (code) => {
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { err += d; });
+    child.on('close', (code) => {
       let data = null;
       try { data = JSON.parse(out); } catch { /* not JSON */ }
       resolve({ code, data, err: err.trim() });
@@ -244,13 +278,20 @@ async function run({ app, bubble, clickOverlay, panelWin, listWindows, log, outp
   const dirReset = await cli(['set', '--output-dir', 'default']);
   const badCorner = await cli(['set', '--bubble-corner', 'middle-ish']);
   checks['drec version'] = cliVersion.code === 0 && String(cliVersion.data).startsWith(app.getVersion()) && /\((dev|built \d{4}-\d\d-\d\d \d\d:\d\d)\)$/.test(cliVersion.data);
-  checks['drec doctor revisa todo'] = Array.isArray(cliDoctor.data?.checks) && cliDoctor.data.checks.length === 7 && cliDoctor.data.checks[0].ok;
-  checks['drec bubble-corner abajo a la derecha'] = cornerSet.code === 0
+  checks['drec doctor checks everything'] = Array.isArray(cliDoctor.data?.checks) && cliDoctor.data.checks.length === 7 && cliDoctor.data.checks[0].ok;
+  checks['drec bubble-corner bottom-right'] = cornerSet.code === 0
     && Math.abs(cornerBounds.x + cornerBounds.width - (area1.workArea.x + area1.workArea.width - 40)) <= 2
     && Math.abs(cornerBounds.y + cornerBounds.height - (area1.workArea.y + area1.workArea.height - 40)) <= 2;
-  checks['drec output-dir cambia la carpeta'] = dirSet.code === 0 && dirSet.data.outputDir === otherDir && fs.existsSync(otherDir);
-  checks['drec output-dir default la devuelve'] = dirReset.code === 0 && dirReset.data.outputDir !== otherDir;
-  checks['drec avisa de una esquina mala'] = badCorner.code === 1 && /bubble-corner/.test(badCorner.err);
+  checks['drec output-dir changes the folder'] = dirSet.code === 0 && dirSet.data.outputDir === otherDir && fs.existsSync(otherDir);
+  checks['drec output-dir default restores it'] = dirReset.code === 0 && dirReset.data.outputDir !== otherDir;
+  checks['drec rejects a bad corner'] = badCorner.code === 1 && /bubble-corner/.test(badCorner.err);
+  const langEs = await cli(['set', '--language', 'es']);
+  await wait(800);
+  const recordEs = await panel(`document.getElementById('record').textContent`);
+  const langEn = await cli(['set', '--language', 'en']);
+  const badLang = await cli(['set', '--language', 'klingon']);
+  checks['drec language switches the app'] = langEs.code === 0 && langEs.data.language === 'es' && recordEs === 'Grabar' && langEn.data?.language === 'en';
+  checks['drec rejects an unknown language'] = badLang.code === 1 && /language/.test(badLang.err);
 
   // In window mode the corner is the window's own (an agent found it landed in the screen's corner).
   if (wins.length) {
@@ -262,8 +303,8 @@ async function run({ app, bubble, clickOverlay, panelWin, listWindows, log, outp
     const SLACK = 40; // the 24 px gap at any scaling, plus rounding
     const nearRight = Math.abs(bb.x + bb.width - Math.min(winRect ? winRect.right : 0, work.x + work.width)) <= SLACK;
     const nearBottom = Math.abs(bb.y + bb.height - Math.min(winRect ? winRect.bottom : 0, work.y + work.height)) <= SLACK;
-    checks['drec bubble-corner usa la esquina de la ventana'] = winCorner.code === 0 && Boolean(winRect) && nearRight && nearBottom;
-    log(`esquina de ventana: ventana ${JSON.stringify(winRect)} burbuja ${JSON.stringify(bb)}`);
+    checks['drec bubble-corner uses the window corner'] = winCorner.code === 0 && Boolean(winRect) && nearRight && nearBottom;
+    log(`window corner: window ${JSON.stringify(winRect)} bubble ${JSON.stringify(bb)}`);
   }
   if (cliDoctor.data) log(`doctor: ${cliDoctor.data.checks.map((c) => `${c.name}=${c.ok}`).join(' ')}`);
   const badToken = await cli(['status'], { DREC_TOKEN_FILE: path.join(__dirname, 'no-such-token') });
@@ -271,11 +312,11 @@ async function run({ app, bubble, clickOverlay, panelWin, listWindows, log, outp
   checks['drec screens'] = cliScreens.code === 0 && Array.isArray(cliScreens.data) && cliScreens.data.length === screen.getAllDisplays().length;
   checks['drec windows'] = cliWindows.code === 0 && Array.isArray(cliWindows.data);
   checks['drec set'] = cliSet.code === 0 && cliSet.data.screenNumber === 1 && cliSet.data.mode === 'screen';
-  checks['drec start graba'] = cliStart.code === 0 && cliStart.data.phase === 'recording';
-  checks['drec pause y resume'] = cliPause.data?.phase === 'paused' && cliResume.data?.phase === 'recording';
-  checks['drec stop da el MP4'] = cliStop.code === 0 && Boolean(cliStop.data?.file) && fs.existsSync(cliStop.data.file);
-  checks['drec rechaza una clave falsa'] = badToken.code === 1 && /token/.test(badToken.err);
-  checks['drec avisa de un valor malo'] = badValue.code === 1 && /bubble/.test(badValue.err);
+  checks['drec start records'] = cliStart.code === 0 && cliStart.data.phase === 'recording';
+  checks['drec pause and resume'] = cliPause.data?.phase === 'paused' && cliResume.data?.phase === 'recording';
+  checks['drec stop returns the MP4'] = cliStop.code === 0 && Boolean(cliStop.data?.file) && fs.existsSync(cliStop.data.file);
+  checks['drec rejects a wrong token'] = badToken.code === 1 && /token/.test(badToken.err);
+  checks['drec reports a bad value'] = badValue.code === 1 && /bubble/.test(badValue.err);
   for (const [name, r] of Object.entries({ cliScreens, cliSet, cliStart, cliStop })) if (r.code !== 0) log(`${name}: ${r.err}`);
 
   // Leaves the test's own settings as a fresh install has them.

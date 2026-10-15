@@ -26,7 +26,7 @@ function getSegmenter() {
       try {
         return await ImageSegmenter.createFromOptions(files, options('GPU'));
       } catch (err) {
-        console.warn(`Segmentación en GPU no disponible, uso la CPU: ${err.message}`);
+        console.warn(`GPU segmentation is not available, using the CPU: ${err.message}`);
         return ImageSegmenter.createFromOptions(files, options('CPU'));
       }
     })();
@@ -67,7 +67,7 @@ export function createCameraPipeline(canvas, { idealWidth = 1280, idealHeight = 
     }
     if (effect.background !== 'none' && !segmenter) {
       getSegmenter().then((s) => { segmenter = s; }).catch((err) => {
-        lastError = `No se pudo cargar el efecto: ${err.message}`;
+        lastError = `The effect could not load: ${err.message}`;
         console.error(lastError);
       });
     }
@@ -93,7 +93,7 @@ export function createCameraPipeline(canvas, { idealWidth = 1280, idealHeight = 
       start();
     } catch (err) {
       deviceId = null; // lets the same camera be tried again
-      lastError = `No se pudo abrir la cámara: ${err.name} ${err.message}`;
+      lastError = `The camera could not open: ${err.name} ${err.message}`;
       console.error(lastError);
     }
   }

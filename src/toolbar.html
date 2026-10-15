@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
-  <title>Controles de la burbuja</title>
+  <title>Bubble controls</title>
   <style>
     html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
     .bar {
@@ -40,20 +40,21 @@
 </head>
 <body>
   <div class="bar">
-    <button data-action="close" title="Quitar cámara" aria-label="Quitar cámara">
+    <button data-action="close">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
     </button>
-    <button data-action="small" title="Pequeña" aria-label="Burbuja pequeña">
+    <button data-action="small">
       <svg viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3.5"/></svg>
     </button>
-    <button data-action="medium" title="Mediana" aria-label="Burbuja mediana">
+    <button data-action="medium">
       <svg viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="6.5"/></svg>
     </button>
-    <button data-action="full" id="full" title="Pantalla completa" aria-label="Pantalla completa">
+    <button data-action="full" id="full">
       <svg class="enter" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg>
       <svg class="exit" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 2v4H2M10 2v4h4M14 10h-4v4M2 10h4v4"/></svg>
     </button>
   </div>
+  <script src="i18n.js"></script>
   <script src="toolbar.js"></script>
 </body>
 </html>

@@ -25,6 +25,9 @@ contextBridge.exposeInMainWorld('api', {
   onShortcut: (fn) => ipcRenderer.on('shortcut', (_e, key) => fn(key)),
   onConvertProgress: (fn) => ipcRenderer.on('convert-progress', (_e, p) => fn(p)),
   onBubbleSizeChanged: (fn) => ipcRenderer.on('bubble-size-changed', (_e, size) => fn(size)),
+  getLanguage: () => ipcRenderer.invoke('get-language'),
+  setLanguage: (lang) => ipcRenderer.send('set-language', lang),
+  onLanguage: (fn) => ipcRenderer.on('language', (_e, lang) => fn(lang)),
   onWindowClick: (fn) => ipcRenderer.on('window-click', (_e, spot) => fn(spot)),
   reportRecState: (s) => ipcRenderer.send('rec-state', s),
 

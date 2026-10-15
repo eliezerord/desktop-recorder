@@ -45,6 +45,7 @@ Options for set, start and record
   --border on|off               Ring around the camera
   --border-color "#ffffff"
   --output-dir path|default     Folder for the MP4s ("default" is Videos\\Desktop Recorder)
+  --language en|es|pt           The app's interface language (English, Spanish, Portuguese)
 
 Examples
   drec start --screen 2 --clicks on --bubble-corner bottom-right
@@ -73,6 +74,7 @@ const OPTIONS = {
   '--bubble': ['bubble', String],
   '--bubble-corner': ['bubbleCorner', String],
   '--output-dir': ['outputDir', 'dir'],
+  '--language': ['language', String],
   '--clicks': ['clicks', 'bool'],
   '--background': ['background', String],
   '--bg-color': ['bgColor', String],
@@ -188,7 +190,7 @@ function print(cmd, data, json) {
     const fx = data.effects || {};
     console.log(`camera: ${data.camera || 'none'}  bubble: ${data.bubble}  background: ${fx.background || 'none'}  border: ${fx.border ? fx.borderColor : 'off'}`);
     console.log(`mic: ${data.mic || 'none'}  pc sound: ${data.systemAudio ? 'on' : 'off'}  clicks: ${data.clicks ? 'on' : 'off'}`);
-    if (data.outputDir) console.log(`saves to: ${data.outputDir}`);
+    if (data.outputDir) console.log(`saves to: ${data.outputDir}  language: ${data.language || 'en'}`);
     if (data.lastFile) console.log(`last file: ${data.lastFile}`);
     if (data.lastError) console.log(`last error: ${data.lastError}`);
   } else if (data !== undefined) console.log(typeof data === 'string' ? data : JSON.stringify(data));

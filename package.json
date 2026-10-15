@@ -1,8 +1,8 @@
 {
   "name": "desktop-recorder",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
-  "description": "Graba la pantalla con una burbuja de cámara y guarda en MP4.",
+  "description": "Records your screen or a window with a camera bubble and saves an MP4.",
   "author": "eliezerord",
   "main": "src/main.js",
   "scripts": {

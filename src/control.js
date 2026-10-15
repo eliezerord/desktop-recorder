@@ -41,7 +41,13 @@ function save() {
   try { localStorage.setItem('prefs', JSON.stringify({ mode, cameraId, micId, systemAudio, bubble, clicks, effects })); } catch { /* prefs are a convenience */ }
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const status = (text) => { $('status').textContent = text; };
+// Texts come from i18n.js in the chosen language. status() remembers its key so a language
+// switch can redraw the current message.
+const { t } = window.DrecI18n;
+let lang = window.DrecI18n.DEFAULT;
+const tr = (key, vars) => t(lang, key, vars);
+let statusKey = ['status.ready', {}];
+const status = (key, vars = {}) => { statusKey = [key, vars]; $('status').textContent = tr(key, vars); };
 const busy = () => phase !== 'idle';
 const live = () => phase === 'recording' || phase === 'paused';
 
@@ -86,7 +92,7 @@ async function loadWindows() {
   const list = await window.api.listWindows();
   if (state.windowId && !list.some((w) => w.id === state.windowId)) { state.windowId = null; state.windowName = ''; }
   $('windows').replaceChildren(...list.map((w) => thumbButton(w, w.id === state.windowId, async () => { await chooseWindow(w); loadWindows(); })));
-  if (!list.length) $('windows').textContent = 'No hay ventanas para grabar.';
+  if (!list.length) $('windows').textContent = tr('window.none');
   render();
   return list;
 }
@@ -111,17 +117,17 @@ async function unlockLabels() {
 
 async function devices() {
   const all = await navigator.mediaDevices.enumerateDevices();
-  const named = (kind, word) => all.filter((d) => d.kind === kind).map((d, i) => ({ id: d.deviceId, label: d.label || `${word} ${i + 1}` }));
-  return { cameras: named('videoinput', 'Cámara'), mics: named('audioinput', 'Micrófono') };
+  const named = (kind, fallbackKey) => all.filter((d) => d.kind === kind).map((d, i) => ({ id: d.deviceId, label: d.label || tr(fallbackKey, { n: i + 1 }) }));
+  return { cameras: named('videoinput', 'camera.fallback'), mics: named('audioinput', 'mic.fallback') };
 }
 
 async function loadDevices() {
   const { cameras, mics } = await devices();
-  fillSelect($('camera'), cameras.map((d) => [d.id, d.label]), 'No hay cámaras');
+  fillSelect($('camera'), cameras.map((d) => [d.id, d.label]), tr('camera.none'));
   if (!cameras.some((d) => d.id === state.cameraId)) state.cameraId = cameras[0] ? cameras[0].id : null;
   $('camera').value = state.cameraId || '';
 
-  fillSelect($('mic'), [['none', 'Sin micrófono'], ...mics.map((d) => [d.id, d.label])]);
+  fillSelect($('mic'), [['none', tr('mic.none')], ...mics.map((d) => [d.id, d.label])]);
   if (state.micId !== 'none' && !mics.some((d) => d.id === state.micId)) state.micId = mics[0] ? mics[0].id : 'none';
   $('mic').value = state.micId;
 
@@ -208,7 +214,7 @@ function applyEffects(changes = {}) {
   $('borderRow').hidden = !fx.border;
   $('borderColor').value = fx.borderColor;
   for (const b of $('swatches').querySelectorAll('button')) b.classList.toggle('on', b.dataset.color === fx.borderColor);
-  $('effectStatus').textContent = fx.background === 'none' ? '' : 'El efecto tarda un momento en cargar la primera vez.';
+  $('effectStatus').textContent = fx.background === 'none' ? '' : tr('fx.loading');
 }
 
 async function pickImage() {
@@ -330,7 +336,7 @@ async function buildStream() {
   const audioSources = [];
 
   if (state.mode === 'screen' || state.mode === 'window') {
-    if (state.mode === 'window' && !state.windowId) throw new Error('Elige una ventana.');
+    if (state.mode === 'window' && !state.windowId) throw new Error(tr('err.pickWindow'));
     // The main process answers this with the chosen screen or window (and PC sound when asked).
     const display = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: state.systemAudio });
     ownedStreams.push(display);
@@ -340,7 +346,7 @@ async function buildStream() {
     video = state.mode === 'window' ? await startCompositor(captured) : captured;
   } else {
     if (!pipeline.hasCamera()) await pipeline.setCamera(state.cameraId);
-    if (!pipeline.hasCamera()) throw new Error('No hay cámara disponible.');
+    if (!pipeline.hasCamera()) throw new Error(tr('err.noCamera'));
     const cam = pipeline.stream(30); // the canvas, so the effect is in the video too
     ownedStreams.push(cam);
     video = cam.getVideoTracks()[0];
@@ -410,13 +416,13 @@ async function startRecording() {
     elapsedMs = 0;
     lastTick = performance.now();
     timerId = setInterval(tick, 250);
-    status('Grabando.');
+    status('status.recording');
     settle(waiters.started, (w) => w.resolve());
   } catch (err) {
     releaseStreams();
     phase = 'idle';
     lastError = err.message;
-    status(`No se pudo empezar: ${err.message}`);
+    status('status.startFailed', { error: err.message });
     settle(waiters.started, (w) => w.reject(err));
   }
   render();
@@ -442,12 +448,12 @@ function togglePause() {
     tick();
     recorder.pause();
     phase = 'paused';
-    status('En pausa.');
+    status('status.paused');
   } else if (phase === 'paused') {
     lastTick = performance.now();
     recorder.resume();
     phase = 'recording';
-    status('Grabando.');
+    status('status.recording');
   }
   render();
 }
@@ -456,7 +462,7 @@ function stopRecording() {
   if (!live()) return;
   tick();
   phase = 'saving';
-  status('Guardando…');
+  status('status.saving');
   render();
   recorder.stop(); // finishRecording runs after the last piece arrives
 }
@@ -473,16 +479,16 @@ async function finishRecording() {
   releaseStreams();
   recorder = null;
   await pending;
-  status('Convirtiendo a MP4…');
+  status('status.converting');
   const res = await window.api.recFinish({ durationSec: elapsedMs / 1000 });
   phase = 'idle';
   lastResult = res;
   if (res.ok) {
-    status(`Guardado: ${res.name}`);
+    status('status.saved', { name: res.name });
     settle(waiters.finished, (w) => w.resolve(res));
   } else {
     lastError = res.error;
-    status(`No se pudo convertir a MP4. El video quedó en WebM: ${res.webm}`);
+    status('status.convertFailed', { path: res.webm });
     console.error(res.error);
     settle(waiters.finished, (w) => w.resolve(res));
   }
@@ -494,9 +500,9 @@ async function finishRecording() {
 function render() {
   const isBusy = busy();
   $('record').disabled = isBusy;
-  $('record').textContent = isBusy ? (phase === 'saving' ? 'Guardando…' : 'Grabando…') : 'Grabar';
+  $('record').textContent = isBusy ? tr(phase === 'saving' ? 'rec.saving' : 'rec.recording') : tr('rec.record');
   $('pause').disabled = !live();
-  $('pause').textContent = phase === 'paused' ? 'Reanudar' : 'Pausar';
+  $('pause').textContent = tr(phase === 'paused' ? 'rec.resume' : 'rec.pause');
   $('stop').disabled = !live();
   $('timer').classList.toggle('live', phase === 'recording');
   for (const b of $('mode').querySelectorAll('button')) b.disabled = isBusy;
@@ -553,7 +559,7 @@ window.api.onShortcut((key) => {
   if (key === 'toggle') busy() ? stopRecording() : startRecording();
   if (key === 'pause') togglePause();
 });
-window.api.onConvertProgress((p) => status(`Convirtiendo a MP4… ${Math.round(p * 100)}%`));
+window.api.onConvertProgress((p) => status('status.convertingPct', { pct: Math.round(p * 100) }));
 window.api.onBubbleSizeChanged(rememberBubble); // size changed from the bubble's own toolbar
 
 // ---------- What the drec CLI calls (through the main process) ----------
@@ -568,7 +574,7 @@ function publicStatus() {
     screen: state.sourceId,
     window: state.windowName || null,
     camera: $('camera').selectedOptions[0]?.textContent || null,
-    mic: $('mic').selectedOptions[0]?.textContent || null,
+    mic: state.micId === 'none' ? null : $('mic').selectedOptions[0]?.textContent || null,
     systemAudio: state.systemAudio,
     bubble: state.bubble,
     clicks: state.clicks,
@@ -665,7 +671,30 @@ window.drec = {
   },
 };
 
+// Redraws every text in the chosen language: the fixed ones marked with data-i18n, the current
+// status, the buttons, and the lists whose names come from the main process or the devices.
+function applyLanguage(next) {
+  lang = window.DrecI18n.pick(next);
+  document.documentElement.lang = lang;
+  $('lang').value = lang;
+  for (const el of document.querySelectorAll('[data-i18n]')) el.textContent = tr(el.dataset.i18n);
+  for (const el of document.querySelectorAll('[data-i18n-title]')) el.title = tr(el.dataset.i18nTitle);
+  status(...statusKey);
+  $('effectStatus').textContent = state.effects.background === 'none' ? '' : tr('fx.loading');
+  render();
+}
+
+$('lang').addEventListener('change', (e) => window.api.setLanguage(e.target.value));
+window.api.onLanguage(async (next) => {
+  applyLanguage(next);
+  if (!window.drecReady) return;
+  await loadScreens(); // screen names are translated by the main process
+  await loadDevices(); // "No microphone" and unnamed devices
+  if (state.mode === 'window') await loadWindows();
+});
+
 (async function init() {
+  applyLanguage(await window.api.getLanguage());
   $('systemAudio').checked = state.systemAudio;
   window.api.setSystemAudio(state.systemAudio);
   $('clicks').checked = state.clicks;

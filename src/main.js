@@ -8,6 +8,7 @@ const { convertToMp4 } = require('./convert');
 const bubble = require('./bubble-windows');
 const clickOverlay = require('./click-overlay');
 const cliServer = require('./cli-server');
+const i18n = require('./i18n');
 const windowTracker = require('./window-tracker');
 
 // Where recordings are saved: the user's choice (panel or drec --output-dir), else their own
@@ -18,6 +19,19 @@ const OUTPUT_DIR = () => settings.outputDir || process.env.DR_OUTPUT_DIR || DEFA
 // Settings the main process owns, kept in the app's own folder (userData), one per Windows user.
 const SETTINGS_FILE = () => path.join(app.getPath('userData'), 'settings.json');
 let settings = {};
+
+// The interface language: English unless the user picked Spanish or Portuguese in the panel.
+const language = () => i18n.pick(settings.language);
+const tr = (key, vars) => i18n.t(language(), key, vars);
+function setLanguage(lang) {
+  settings.language = i18n.pick(lang);
+  saveSettings();
+  for (const win of BrowserWindow.getAllWindows()) win.webContents.send('language', language());
+}
+// Every window learns the language as soon as it has loaded.
+app.on('browser-window-created', (_e, win) => {
+  win.webContents.on('did-finish-load', () => win.webContents.send('language', language()));
+});
 function loadSettings() {
   try { settings = JSON.parse(fs.readFileSync(SETTINGS_FILE(), 'utf8')) || {}; } catch { settings = {}; }
 }
@@ -125,7 +139,7 @@ async function listScreens(withThumbs = true) {
       number: i + 1,
       id: s.id,
       displayId: s.display_id,
-      name: `Pantalla ${i + 1}${String(d.id) === primaryId ? ' (principal)' : ''}`,
+      name: tr(String(d.id) === primaryId ? 'screen.primary' : 'screen.name', { n: i + 1 }),
       size: `${d.size.width} x ${d.size.height}`,
       primary: String(d.id) === primaryId,
       thumb: withThumbs ? s.thumbnail.toDataURL() : undefined,
@@ -156,9 +170,9 @@ function selectWindow(sourceId) {
 // the camera canvas can still be recorded (a canvas with an outside file in it cannot).
 async function pickBackgroundImage() {
   const res = await dialog.showOpenDialog(controlWin, {
-    title: 'Imagen de fondo',
+    title: tr('image.dialog'),
     properties: ['openFile'],
-    filters: [{ name: 'Imágenes', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }],
+    filters: [{ name: tr('image.filter'), extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }],
   });
   if (res.canceled || !res.filePaths[0]) return null;
   return imageAsData(res.filePaths[0]);
@@ -167,7 +181,7 @@ async function pickBackgroundImage() {
 const BACKGROUND_MAX_WIDTH = 1920; // a camera frame is at most this wide, so more pixels add nothing
 function imageAsData(file) {
   let img = nativeImage.createFromPath(file);
-  if (img.isEmpty()) throw new Error(`No se pudo leer la imagen ${file}.`);
+  if (img.isEmpty()) throw new Error(`Could not read the picture ${file}.`);
   if (img.getSize().width > BACKGROUND_MAX_WIDTH) img = img.resize({ width: BACKGROUND_MAX_WIDTH, quality: 'best' });
   return { name: path.basename(file), dataUrl: `data:image/jpeg;base64,${img.toJPEG(85).toString('base64')}` };
 }
@@ -199,14 +213,14 @@ function registerIpc() {
 
   ipcMain.handle('rec-finish', async (_e, info) => {
     const webm = recording.webmPath;
-    if (!recording.stream || !webm) return { ok: false, error: 'No había ninguna grabación en curso.' };
+    if (!recording.stream || !webm) return { ok: false, error: 'No recording was running.' };
     await new Promise((resolve) => recording.stream.end(resolve));
     recording.stream = null;
     recording.webmPath = null;
 
     const dir = OUTPUT_DIR();
     fs.mkdirSync(dir, { recursive: true });
-    const name = `Grabación ${timestamp()}.mp4`;
+    const name = `${tr('file.prefix')} ${timestamp()}.mp4`;
     const mp4 = path.join(dir, name);
     try {
       await convertToMp4(webm, mp4, (info && info.durationSec) || 0, (p) => {
@@ -217,7 +231,7 @@ function registerIpc() {
       return { ok: true, name, file: mp4 };
     } catch (err) {
       // Keep the raw recording so nothing is lost when the conversion fails.
-      const kept = path.join(dir, `Grabación ${timestamp()}.webm`);
+      const kept = path.join(dir, `${tr('file.prefix')} ${timestamp()}.webm`);
       try { fs.renameSync(webm, kept); } catch { fs.copyFileSync(webm, kept); }
       return { ok: false, error: err.message, webm: kept };
     }
@@ -230,7 +244,7 @@ function registerIpc() {
   ipcMain.handle('get-output-dir', () => OUTPUT_DIR());
   ipcMain.handle('choose-output-dir', async () => {
     const res = await dialog.showOpenDialog(controlWin, {
-      title: 'Carpeta de grabaciones',
+      title: tr('folder.dialog'),
       defaultPath: OUTPUT_DIR(),
       properties: ['openDirectory', 'createDirectory'],
     });
@@ -238,6 +252,8 @@ function registerIpc() {
     return setOutputDir(res.filePaths[0]);
   });
   ipcMain.handle('reset-output-dir', () => setOutputDir(null));
+  ipcMain.handle('get-language', () => language());
+  ipcMain.on('set-language', (_e, lang) => setLanguage(lang));
 }
 
 app.whenReady().then(() => {
@@ -336,7 +352,9 @@ async function withScreenNumber(status) {
 
 // Settings the panel does not own: where the bubble sits and where recordings are saved.
 async function applyAll(a) {
-  const { bubbleCorner, outputDir, ...panelSettings } = a;
+  const { bubbleCorner, outputDir, language: lang, ...panelSettings } = a;
+  if (lang !== undefined && !i18n.LANGS.includes(lang)) throw new Error(`language: use ${i18n.LANGS.join(', ')}.`);
+  if (lang !== undefined) setLanguage(lang);
   if (bubbleCorner !== undefined && !bubble.CORNERS.includes(bubbleCorner)) throw new Error(`bubble-corner: use ${bubble.CORNERS.join(', ')}.`);
   if (Object.keys(panelSettings).length) await panelCall('apply', await resolveSettings(panelSettings));
   if (bubbleCorner !== undefined) {
@@ -353,7 +371,7 @@ async function applyAll(a) {
 }
 
 async function fullStatus(status) {
-  return { ...(await withScreenNumber(status)), outputDir: OUTPUT_DIR(), version: app.getVersion() };
+  return { ...(await withScreenNumber(status)), outputDir: OUTPUT_DIR(), language: language(), version: app.getVersion() };
 }
 
 // Version plus when this copy of the app was built, so two builds with the same version number
@@ -416,7 +434,23 @@ app.on('will-quit', () => {
   log('saliendo');
 });
 
+// DR_SNAPSHOT=<file.png> saves a picture of the panel once it has loaded, then quits (for checking
+// the layout and for the README). DR_LANG picks the language for that picture.
+if (process.env.DR_SNAPSHOT) {
+  app.whenReady().then(async () => {
+    if (process.env.DR_LANG) setLanguage(process.env.DR_LANG);
+    for (let i = 0; i < 60; i++) {
+      if (await controlWin.webContents.executeJavaScript('Boolean(window.drecReady)').catch(() => false)) break;
+      await wait(250);
+    }
+    await wait(1500);
+    const img = await controlWin.webContents.capturePage();
+    fs.writeFileSync(process.env.DR_SNAPSHOT, img.toPNG());
+    app.quit();
+  });
+}
+
 // DR_SMOKE=1 runs the smoke test in smoke.js and quits. How to run it: README.md.
 if (process.env.DR_SMOKE) {
-  app.whenReady().then(() => require('./smoke').run({ app, bubble, clickOverlay, panelWin: () => controlWin, listWindows, log, outputDir: OUTPUT_DIR }));
+  app.whenReady().then(() => require('./smoke').run({ app, bubble, clickOverlay, panelWin: () => controlWin, listWindows, log, outputDir: OUTPUT_DIR, setLanguage }));
 }
