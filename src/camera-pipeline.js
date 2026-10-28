@@ -54,6 +54,7 @@ export function createCameraPipeline(canvas, { idealWidth = 1280, idealHeight = 
   let backgroundImage = null;
   let segmenter = null;
   let running = false;
+  let drawn = false; // the canvas has its real size once the first camera frame is on it
   let lastError = null;
 
   function setEffect(next) {
@@ -102,6 +103,7 @@ export function createCameraPipeline(canvas, { idealWidth = 1280, idealHeight = 
     if (stream) stream.getTracks().forEach((t) => t.stop());
     stream = null;
     video.srcObject = null;
+    drawn = false;
   }
 
   function sizeTo(w, h) {
@@ -138,6 +140,7 @@ export function createCameraPipeline(canvas, { idealWidth = 1280, idealHeight = 
     const h = video.videoHeight;
     if (!w || !h) return;
     sizeTo(w, h);
+    drawn = true;
     if (effect.background === 'none' || !segmenter) {
       ctx.drawImage(video, 0, 0, w, h);
       return;
@@ -186,6 +189,7 @@ export function createCameraPipeline(canvas, { idealWidth = 1280, idealHeight = 
     setEffect,
     stream: (fps = 30) => canvas.captureStream(fps),
     hasCamera: () => Boolean(stream),
+    hasFrame: () => drawn,
     effectReady: () => effect.background === 'none' || Boolean(segmenter),
     lastError: () => lastError,
     stop: () => { running = false; deviceId = null; stopStream(); },

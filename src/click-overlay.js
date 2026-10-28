@@ -15,11 +15,14 @@ let hookError = null;
 let mode = null;
 let display = null;
 let onWindowClick = () => {};
+let clickListener = () => {};
+let highlight = false;
 
 const alive = () => Boolean(win && !win.isDestroyed());
 
-function create({ preload, forwardConsole, windowClick }) {
+function create({ preload, forwardConsole, windowClick, onClick }) {
   onWindowClick = windowClick || onWindowClick;
+  clickListener = onClick || clickListener;
   win = new BrowserWindow({
     frame: false,
     transparent: true,
@@ -39,8 +42,11 @@ function create({ preload, forwardConsole, windowClick }) {
   win.loadFile(path.join(__dirname, 'clicks.html'));
 }
 
-// The hook reports physical pixels.
+// The hook reports physical pixels. Every press goes to the listener (the Capture's event record);
+// the circle is drawn only when the user turned click highlights on.
 function onMouseDown(e) {
+  clickListener({ x: e.x, y: e.y, button: e.button });
+  if (!highlight) return;
   if (mode === 'window') {
     const spot = windowTracker.locate(e.x, e.y);
     if (spot) onWindowClick(spot);
@@ -80,8 +86,10 @@ function hideOverlay() {
 }
 
 // Called on every recording state change; does nothing when nothing changed.
+// `active` keeps the hook running (clicks are always recorded); `showCircles` draws them.
 // In window recordings the window's position comes from window-tracker, which main.js runs.
-function update({ active, recordMode, displayId }) {
+function update({ active, showCircles, recordMode, displayId }) {
+  highlight = Boolean(showCircles);
   if (!active || (recordMode !== 'screen' && recordMode !== 'window')) {
     mode = null;
     stopHook();
@@ -89,7 +97,7 @@ function update({ active, recordMode, displayId }) {
     return;
   }
   mode = recordMode;
-  if (mode === 'window') {
+  if (mode === 'window' || !highlight) {
     hideOverlay();
   } else {
     if (!alive()) return;

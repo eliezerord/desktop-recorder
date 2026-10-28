@@ -1,6 +1,7 @@
 // Control panel: picks what to record (a screen, a window or only the camera), the camera and its
-// effects, and runs the recording. The recording is sent to the main process in 1-second pieces,
-// which writes them to a temp file. window.drec at the bottom is what the drec CLI calls.
+// effects, and runs the recording. The recording is sent to the main process in 1-second pieces:
+// a screen or window recording and its camera go into a Project folder as two files (capture-project.js),
+// a camera-only recording goes to a temp file. window.drec at the bottom is what the drec CLI calls.
 import { createCameraPipeline } from './camera-pipeline.js';
 
 const $ = (id) => document.getElementById(id);
@@ -18,6 +19,11 @@ const state = {
 
 let phase = 'idle'; // idle | countdown | recording | paused | saving
 let recorder = null;
+let cameraRecorder = null; // the camera of a screen or window recording, saved as its own file
+let cameraStopped = Promise.resolve();
+let cameraPending = Promise.resolve();
+let cameraOffsetMs = 0; // how much later than the screen the camera started
+let cameraForRecording = false; // the panel keeps the camera open for the recording's camera file
 let ownedStreams = []; // streams opened only for this recording, closed when it ends
 let audioCtx = null;
 let compositor = null;
@@ -29,8 +35,8 @@ let lastResult = null;
 let lastError = null;
 const waiters = { started: [], finished: [] }; // CLI calls waiting for a recording to start or finish
 
-// The camera as the panel sees it: the preview in camera-only mode, and the camera drawn into
-// window recordings. The bubble window has its own copy for screen recordings.
+// The camera as the panel sees it: the preview in camera-only mode, and the camera file of screen
+// and window recordings. The bubble window has its own copy, the one the user sees.
 const pipeline = createCameraPipeline($('preview'), { idealWidth: 1920, idealHeight: 1080 });
 
 function load(key, fallback) {
@@ -147,9 +153,9 @@ function fillSelect(select, options, emptyText) {
   }
 }
 
-// The panel only opens the camera when it needs it: the camera-only preview, or window recordings.
+// The panel only opens the camera when it needs it: the camera-only preview, or the camera file of a recording.
 function updatePanelCamera() {
-  const needed = state.mode === 'camera' || state.mode === 'window';
+  const needed = state.mode === 'camera' || cameraForRecording;
   pipeline.setCamera(needed ? state.cameraId : null);
 }
 
@@ -235,8 +241,9 @@ function markOn(groupId, attr, value) {
 
 // ---------- Recording ----------
 
-// Window recordings: the bubble is another window, so it is not in the capture. The camera is
-// drawn into the video here instead, at the same spot and size the bubble has on its screen.
+// Window recordings with click highlights on: the click circles are drawn into the video here, because
+// the see-through overlay is not part of a window capture. Without highlights the window track is
+// recorded as it is. The camera is never drawn in: it is saved apart, as the Project's camera file.
 async function startCompositor(windowTrack) {
   const src = document.createElement('video');
   src.muted = true;
@@ -244,21 +251,17 @@ async function startCompositor(windowTrack) {
   await src.play();
   const out = document.createElement('canvas');
   const ctx = out.getContext('2d');
-  const cam = $('preview');
-  let place = await window.api.bubblePlacement();
-  const placeTimer = setInterval(async () => { place = await window.api.bubblePlacement(); }, 250);
   const draw = () => {
     const w = src.videoWidth & ~1; // even sizes, which H.264 needs
     const h = src.videoHeight & ~1;
     if (!w || !h) return;
     if (out.width !== w || out.height !== h) { out.width = w; out.height = h; }
     ctx.drawImage(src, 0, 0, w, h);
-    if (place && pipeline.hasCamera() && cam.width) drawCamera(ctx, cam, place, w, h);
     drawClickRipples(ctx, w, h);
   };
   draw();
   const timer = setInterval(draw, 1000 / 30);
-  compositor = { stop() { clearInterval(timer); clearInterval(placeTimer); src.srcObject = null; clickRipples.length = 0; } };
+  compositor = { stop() { clearInterval(timer); src.srcObject = null; clickRipples.length = 0; } };
   const stream = out.captureStream(30);
   ownedStreams.push(stream);
   return stream.getVideoTracks()[0];
@@ -299,38 +302,6 @@ function drawClickRipples(ctx, w, h) {
 // For the smoke test.
 window.clickRippleCount = () => clickRipples.length;
 
-function drawCamera(ctx, cam, p, w, h) {
-  if (p.full) { drawCover(ctx, cam, 0, 0, w, h); return; }
-  const d = Math.round(Math.min(p.size * h, w, h));
-  const x = Math.min(Math.max(Math.round(p.x * w), 0), w - d);
-  const y = Math.min(Math.max(Math.round(p.y * h), 0), h - d);
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(x + d / 2, y + d / 2, d / 2, 0, Math.PI * 2);
-  ctx.clip();
-  drawCover(ctx, cam, x, y, d, d);
-  ctx.restore();
-  if (state.effects.border) {
-    ctx.lineWidth = Math.max(2, d * 0.02);
-    ctx.strokeStyle = state.effects.borderColor;
-    ctx.beginPath();
-    ctx.arc(x + d / 2, y + d / 2, d / 2 - ctx.lineWidth / 2, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-}
-
-// Fills the box with the camera, cropped to fit, mirrored like the bubble.
-function drawCover(ctx, img, x, y, w, h) {
-  const s = Math.max(w / img.width, h / img.height);
-  const iw = img.width * s;
-  const ih = img.height * s;
-  ctx.save();
-  ctx.translate(x + w, y);
-  ctx.scale(-1, 1);
-  ctx.drawImage(img, (w - iw) / 2, (h - ih) / 2, iw, ih);
-  ctx.restore();
-}
-
 async function buildStream() {
   let video;
   const audioSources = [];
@@ -343,7 +314,7 @@ async function buildStream() {
     const captured = display.getVideoTracks()[0];
     captured.addEventListener('ended', () => { if (live()) stopRecording(); });
     if (display.getAudioTracks().length) audioSources.push(new MediaStream(display.getAudioTracks()));
-    video = state.mode === 'window' ? await startCompositor(captured) : captured;
+    video = state.mode === 'window' && state.clicks ? await startCompositor(captured) : captured;
   } else {
     if (!pipeline.hasCamera()) await pipeline.setCamera(state.cameraId);
     if (!pipeline.hasCamera()) throw new Error(tr('err.noCamera'));
@@ -373,8 +344,10 @@ async function buildStream() {
   return out;
 }
 
-function pickMimeType() {
-  const options = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+function pickMimeType(withAudio = true) {
+  const options = withAudio
+    ? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+    : ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
   return options.find((t) => MediaRecorder.isTypeSupported(t)) || '';
 }
 
@@ -387,6 +360,9 @@ async function startRecording() {
   lastError = null;
   phase = 'countdown';
   $('timer').textContent = '00:00';
+  // A screen or window recording also saves the camera apart. Opening it takes a moment, so it starts here.
+  const wantCamera = (state.mode === 'screen' || state.mode === 'window') && Boolean(state.cameraId) && state.bubble !== 'hidden';
+  if (wantCamera) { cameraForRecording = true; updatePanelCamera(); }
   render();
   for (let n = 3; n > 0; n--) {
     $('countdown').textContent = n;
@@ -403,7 +379,29 @@ async function startRecording() {
       videoBitsPerSecond: state.mode === 'camera' ? 8_000_000 : 10_000_000,
       audioBitsPerSecond: 160_000,
     });
-    await window.api.recBegin();
+    // The camera file starts only once the camera has drawn a frame, so its size does not change mid-file.
+    for (let i = 0; wantCamera && i < 30 && !pipeline.hasFrame(); i++) await sleep(100);
+    cameraRecorder = null;
+    if (wantCamera && pipeline.hasFrame()) {
+      const camStream = pipeline.stream(30);
+      ownedStreams.push(camStream);
+      cameraRecorder = new MediaRecorder(camStream, { mimeType: pickMimeType(false), videoBitsPerSecond: 6_000_000 });
+      cameraPending = Promise.resolve();
+      cameraRecorder.ondataavailable = (e) => {
+        if (!e.data || !e.data.size) return;
+        const blob = e.data;
+        cameraPending = cameraPending.then(async () => window.api.recCameraChunk(new Uint8Array(await blob.arrayBuffer())));
+      };
+      cameraStopped = new Promise((resolve) => { cameraRecorder.onstop = resolve; });
+    }
+    await window.api.recBegin({
+      mode: state.mode,
+      camera: Boolean(cameraRecorder),
+      windowName: state.windowName,
+      clicks: state.clicks, // click circles are drawn into the video while recording
+      bubble: state.bubble,
+      effects: { background: state.effects.background, border: state.effects.border, borderColor: state.effects.borderColor },
+    });
     pending = Promise.resolve();
     recorder.ondataavailable = (e) => {
       if (!e.data || !e.data.size) return;
@@ -411,7 +409,13 @@ async function startRecording() {
       pending = pending.then(async () => window.api.recChunk(new Uint8Array(await blob.arrayBuffer())));
     };
     recorder.onstop = finishRecording;
+    const screenStart = performance.now();
     recorder.start(1000);
+    if (cameraRecorder) {
+      cameraRecorder.start(1000);
+      // shortcut: the offset is the gap between the two start calls, good to about 100 ms; use the first frame times when sync matters more
+      cameraOffsetMs = performance.now() - screenStart;
+    }
     phase = 'recording';
     elapsedMs = 0;
     lastTick = performance.now();
@@ -420,6 +424,9 @@ async function startRecording() {
     settle(waiters.started, (w) => w.resolve());
   } catch (err) {
     releaseStreams();
+    cameraRecorder = null;
+    cameraForRecording = false;
+    updatePanelCamera();
     phase = 'idle';
     lastError = err.message;
     status('status.startFailed', { error: err.message });
@@ -447,11 +454,13 @@ function togglePause() {
   if (phase === 'recording') {
     tick();
     recorder.pause();
+    if (cameraRecorder) cameraRecorder.pause();
     phase = 'paused';
     status('status.paused');
   } else if (phase === 'paused') {
     lastTick = performance.now();
     recorder.resume();
+    if (cameraRecorder) cameraRecorder.resume();
     phase = 'recording';
     status('status.recording');
   }
@@ -464,6 +473,7 @@ function stopRecording() {
   phase = 'saving';
   status('status.saving');
   render();
+  if (cameraRecorder) cameraRecorder.stop();
   recorder.stop(); // finishRecording runs after the last piece arrives
 }
 
@@ -479,8 +489,13 @@ async function finishRecording() {
   releaseStreams();
   recorder = null;
   await pending;
+  if (cameraRecorder) { await cameraStopped; await cameraPending; }
+  const hadCamera = Boolean(cameraRecorder);
+  cameraRecorder = null;
+  cameraForRecording = false;
+  updatePanelCamera();
   status('status.converting');
-  const res = await window.api.recFinish({ durationSec: elapsedMs / 1000 });
+  const res = await window.api.recFinish({ durationSec: elapsedMs / 1000, cameraOffsetMs: hadCamera ? cameraOffsetMs : 0 });
   phase = 'idle';
   lastResult = res;
   if (res.ok) {
@@ -493,12 +508,58 @@ async function finishRecording() {
     settle(waiters.finished, (w) => w.resolve(res));
   }
   render();
+  loadProjects();
+}
+
+// ---------- Projects and their size (ticket 08) ----------
+
+// Each Project with its size and the button that deletes its raw material. Nothing is deleted without
+// that click and the confirmation the main process asks for.
+async function loadProjects() {
+  let list;
+  try { list = await window.api.listProjects(); } catch (err) { console.error(err); return; }
+  $('projects').replaceChildren(...list.map((p) => {
+    const li = document.createElement('li');
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = p.name;
+    name.title = p.name;
+    const size = document.createElement('span');
+    size.className = 'size';
+    size.textContent = p.rawDeleted ? tr('storage.rawDeleted', { size: p.size }) : p.size;
+    if (!p.rawDeleted) size.title = tr('storage.frees', { size: p.freeable });
+    li.append(name, size);
+    if (!p.rawDeleted) {
+      const edit = document.createElement('button');
+      edit.className = 'link';
+      edit.textContent = tr('storage.edit');
+      edit.addEventListener('click', async () => {
+        const res = await window.api.openEditor(p.name);
+        if (!res.ok) $('storageStatus').textContent = tr('storage.editFailed', { error: res.error });
+      });
+      li.append(edit);
+      const del = document.createElement('button');
+      del.className = 'link';
+      del.textContent = tr('storage.deleteRaw');
+      del.disabled = busy();
+      del.addEventListener('click', async () => {
+        const res = await window.api.deleteRaw(p.name);
+        if (res.canceled) return;
+        $('storageStatus').textContent = res.ok ? tr('storage.deleted', { name: res.project }) : tr('storage.failed', { error: res.error });
+        loadProjects();
+      });
+      li.append(del);
+    }
+    return li;
+  }));
+  if (!list.length) $('projects').textContent = tr('storage.none');
 }
 
 // ---------- UI ----------
 
 function render() {
   const isBusy = busy();
+  for (const b of $('projects').querySelectorAll('button')) b.disabled = isBusy; // no delete while recording
   $('record').disabled = isBusy;
   $('record').textContent = isBusy ? tr(phase === 'saving' ? 'rec.saving' : 'rec.recording') : tr('rec.record');
   $('pause').disabled = !live();
@@ -543,6 +604,8 @@ $('systemAudio').addEventListener('change', (e) => {
 $('clicks').addEventListener('change', (e) => setClicks(e.target.checked));
 $('refreshScreens').addEventListener('click', loadScreens);
 $('refreshWindows').addEventListener('click', loadWindows);
+$('refreshProjects').addEventListener('click', loadProjects);
+window.addEventListener('focus', loadProjects); // a recording or drec delete-raw may have changed them
 $('refreshDevices').addEventListener('click', loadDevices);
 $('record').addEventListener('click', startRecording);
 $('pause').addEventListener('click', togglePause);
@@ -580,6 +643,7 @@ function publicStatus() {
     clicks: state.clicks,
     effects: fx,
     lastFile: lastResult && lastResult.ok ? lastResult.file : null,
+    lastProject: lastResult && lastResult.project ? lastResult.project : null,
     lastError,
   };
 }
@@ -682,6 +746,7 @@ function applyLanguage(next) {
   status(...statusKey);
   $('effectStatus').textContent = state.effects.background === 'none' ? '' : tr('fx.loading');
   render();
+  $('storageStatus').textContent = '';
 }
 
 $('lang').addEventListener('change', (e) => window.api.setLanguage(e.target.value));
@@ -691,6 +756,7 @@ window.api.onLanguage(async (next) => {
   await loadScreens(); // screen names are translated by the main process
   await loadDevices(); // "No microphone" and unnamed devices
   if (state.mode === 'window') await loadWindows();
+  await loadProjects(); // after the screens, whose names the smoke test reads first
 });
 
 (async function init() {
@@ -705,5 +771,6 @@ window.api.onLanguage(async (next) => {
   await loadDevices();
   await setMode(state.mode);
   render();
+  await loadProjects();
   window.drecReady = true;
 })();

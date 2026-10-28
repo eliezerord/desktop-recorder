@@ -3,9 +3,10 @@
 // Checks read the app's state, not its texts, so they hold in every interface language.
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
 const { screen } = require('electron');
 const windowTracker = require('./window-tracker');
+const { makeCli } = require('./smoke-cli');
+const captureSmoke = require('./smoke-capture');
 
 async function run({ app, bubble, clickOverlay, panelWin, listWindows, log, outputDir, setLanguage }) {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -39,15 +40,17 @@ async function run({ app, bubble, clickOverlay, panelWin, listWindows, log, outp
     screen: await panel(`document.querySelector('#screens .screen span')?.textContent || ''`),
   });
   const en = await texts();
-  setLanguage('es');
-  await wait(1500);
-  const es = await texts();
-  setLanguage('pt');
-  await wait(1500);
-  const pt = await texts();
-  setLanguage('en');
-  await wait(1500);
-  const back = await texts();
+  // The screen names come back from the main process with fresh thumbnails, which can take more than a
+  // second and a half, so each language waits for them (up to 6 s) instead of for a fixed time.
+  const switchTo = async (lang, screenStart) => {
+    setLanguage(lang);
+    await wait(1500);
+    for (let i = 0; i < 18 && !(await texts()).screen.startsWith(screenStart); i++) await wait(250);
+    return texts();
+  };
+  const es = await switchTo('es', 'Pantalla');
+  const pt = await switchTo('pt', 'Tela');
+  const back = await switchTo('en', 'Screen');
   Object.assign(checks, {
     'english by default': en.lang === 'en' && en.record === 'Record' && en.what === 'What to record' && en.screen.startsWith('Screen'),
     'spanish everywhere': es.record === 'Grabar' && es.what === 'Qué grabar' && es.pill.startsWith('Grabar') && es.toolbar === 'Pequeña' && es.screen.startsWith('Pantalla'),
@@ -241,23 +244,7 @@ async function run({ app, bubble, clickOverlay, panelWin, listWindows, log, outp
   if (!camStop.ok) log(`camera: ${camStop.error || camStart.error}`);
 
   step('drec cli');
-  // The real CLI, run the way the installed drec.cmd runs it: this exe acting as Node.
-  const cli = (argv, env = {}) => new Promise((resolve) => {
-    // Installed, the CLI sits in resources/cli next to the app archive; in the source folder, in cli/.
-    const drecJs = app.isPackaged ? path.join(process.resourcesPath, 'cli', 'drec.js') : path.join(__dirname, '..', 'cli', 'drec.js');
-    const child = spawn(process.execPath, [drecJs, ...argv, '--json'], {
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...env },
-    });
-    let out = '';
-    let err = '';
-    child.stdout.on('data', (d) => { out += d; });
-    child.stderr.on('data', (d) => { err += d; });
-    child.on('close', (code) => {
-      let data = null;
-      try { data = JSON.parse(out); } catch { /* not JSON */ }
-      resolve({ code, data, err: err.trim() });
-    });
-  });
+  const cli = makeCli(app);
   const cliScreens = await cli(['screens']);
   const cliWindows = await cli(['windows']);
   const cliSet = await cli(['set', '--mode', 'screen', '--screen', '1', '--bubble', 'small', '--clicks', 'off']);
@@ -269,6 +256,7 @@ async function run({ app, bubble, clickOverlay, panelWin, listWindows, log, outp
   const cliStop = await cli(['stop']);
   const cliVersion = await cli(['version']);
   const cliDoctor = await cli(['doctor']);
+  const probedDoctor = await cli(['doctor', '--probe-cursor', 'on']); // moves the mouse for about 30 s
   const cornerSet = await cli(['set', '--screen', '1', '--bubble-corner', 'bottom-right']);
   await wait(300);
   const cornerBounds = bubble.snapshot().bounds;
@@ -278,7 +266,15 @@ async function run({ app, bubble, clickOverlay, panelWin, listWindows, log, outp
   const dirReset = await cli(['set', '--output-dir', 'default']);
   const badCorner = await cli(['set', '--bubble-corner', 'middle-ish']);
   checks['drec version'] = cliVersion.code === 0 && String(cliVersion.data).startsWith(app.getVersion()) && /\((dev|built \d{4}-\d\d-\d\d \d\d:\d\d)\)$/.test(cliVersion.data);
-  checks['drec doctor checks everything'] = Array.isArray(cliDoctor.data?.checks) && cliDoctor.data.checks.length === 7 && cliDoctor.data.checks[0].ok;
+  checks['drec doctor checks everything'] = Array.isArray(cliDoctor.data?.checks) && cliDoctor.data.checks.length === 8 && cliDoctor.data.checks[0].ok;
+  // The probe tells what each kind of capture does with the cursor (the settings folder is reused, so a
+  // plain doctor may already know the answer from an earlier run).
+  const cursorLine = (d) => d?.checks?.find((c) => c.name === 'cursor capture')?.detail || '';
+  checks['doctor has a cursor capture line'] = cursorLine(cliDoctor.data).length > 0;
+  checks['doctor --probe-cursor reports screen and window'] = probedDoctor.code === 0
+    && /^screen .+; window .+ \(tested \d{4}-\d\d-\d\d\)$/.test(cursorLine(probedDoctor.data))
+    && !/could not be tested/.test(cursorLine(probedDoctor.data));
+  log(`cursor capture: ${cursorLine(probedDoctor.data)}`);
   checks['drec bubble-corner bottom-right'] = cornerSet.code === 0
     && Math.abs(cornerBounds.x + cornerBounds.width - (area1.workArea.x + area1.workArea.width - 40)) <= 2
     && Math.abs(cornerBounds.y + cornerBounds.height - (area1.workArea.y + area1.workArea.height - 40)) <= 2;
@@ -318,6 +314,9 @@ async function run({ app, bubble, clickOverlay, panelWin, listWindows, log, outp
   checks['drec rejects a wrong token'] = badToken.code === 1 && /token/.test(badToken.err);
   checks['drec reports a bad value'] = badValue.code === 1 && /bubble/.test(badValue.err);
   for (const [name, r] of Object.entries({ cliScreens, cliSet, cliStart, cliStop })) if (r.code !== 0) log(`${name}: ${r.err}`);
+
+  step('capture project');
+  Object.assign(checks, await captureSmoke.steps({ app, bubble, clickOverlay, listWindows, log }));
 
   // Leaves the test's own settings as a fresh install has them.
   await drec('apply', { mode: 'screen', background: 'none', border: false, systemAudio: false });

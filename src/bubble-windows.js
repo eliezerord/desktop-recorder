@@ -235,9 +235,17 @@ function updatePill() {
   if (!pillWin.isVisible()) pillWin.showInactive();
 }
 
+// While a screen recording runs, the bubble is kept out of the capture like the toolbar and the pill:
+// the camera is recorded apart and Export puts it back. (A window capture never contains it.)
+let bubbleHidden = false;
 function setRecState(s) {
   lastRecState = s;
   if (alive(pillWin)) pillWin.webContents.send('rec-state', s);
+  const hide = s.mode === 'screen' && ['countdown', 'recording', 'paused'].includes(s.phase);
+  if (hide !== bubbleHidden && alive(bubbleWin)) {
+    bubbleHidden = hide;
+    bubbleWin.setContentProtection(hide);
+  }
 }
 
 // ---------- Pointer watcher ----------

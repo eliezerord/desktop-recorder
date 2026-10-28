@@ -8,9 +8,12 @@ function convertToMp4(input, output, durationSec, onProgress = () => {}) {
   return new Promise((resolve, reject) => {
     const args = [
       '-y', '-i', input,
-      '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', // H.264 needs even width and height
+      // H.264 needs even width and height. The colours stay BT.601 (what the recorder gives) and the file says so in
+      // all three tags: with only one, Chromium (the Editor preview, browsers) decodes them as BT.709 and red turns orange.
+      '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2:out_color_matrix=bt601:out_range=tv',
       '-r', '30', // fixed 30 fps: editors handle the recorder's variable frame rate badly
       '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p',
+      '-colorspace', 'smpte170m', '-color_primaries', 'smpte170m', '-color_trc', 'smpte170m', '-color_range', 'tv',
       '-c:a', 'aac', '-b:a', '160k',
       '-movflags', '+faststart',
       output,
